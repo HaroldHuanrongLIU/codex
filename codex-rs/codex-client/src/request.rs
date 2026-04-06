@@ -18,6 +18,7 @@ pub struct Request {
     pub url: String,
     pub headers: HeaderMap,
     pub body: Option<Value>,
+    pub raw_body: Option<Bytes>,
     pub compression: RequestCompression,
     pub timeout: Option<Duration>,
 }
@@ -29,6 +30,7 @@ impl Request {
             url,
             headers: HeaderMap::new(),
             body: None,
+            raw_body: None,
             compression: RequestCompression::None,
             timeout: None,
         }
@@ -36,6 +38,13 @@ impl Request {
 
     pub fn with_json<T: Serialize>(mut self, body: &T) -> Self {
         self.body = serde_json::to_value(body).ok();
+        self.raw_body = None;
+        self
+    }
+
+    pub fn with_raw_body(mut self, body: impl Into<Bytes>) -> Self {
+        self.body = None;
+        self.raw_body = Some(body.into());
         self
     }
 

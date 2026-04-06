@@ -47,6 +47,7 @@ impl ReqwestTransport {
             url,
             mut headers,
             body,
+            raw_body,
             compression,
             timeout,
         } = req;
@@ -60,7 +61,20 @@ impl ReqwestTransport {
             builder = builder.timeout(timeout);
         }
 
-        if let Some(body) = body {
+        if body.is_some() && raw_body.is_some() {
+            return Err(TransportError::Build(
+                "request cannot contain both JSON and raw bodies".to_string(),
+            ));
+        }
+
+        if let Some(raw_body) = raw_body {
+            if compression != RequestCompression::None {
+                return Err(TransportError::Build(
+                    "request compression cannot be used with raw bodies".to_string(),
+                ));
+            }
+            builder = builder.headers(headers).body(raw_body);
+        } else if let Some(body) = body {
             if compression != RequestCompression::None {
                 if headers.contains_key(http::header::CONTENT_ENCODING) {
                     return Err(TransportError::Build(

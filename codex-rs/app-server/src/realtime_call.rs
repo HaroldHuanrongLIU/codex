@@ -1,3 +1,5 @@
+use codex_api::RealtimeCallClient;
+use codex_api::ReqwestTransport;
 use codex_app_server_protocol::AuthMode;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RealtimeCallCreateParams;
@@ -5,6 +7,7 @@ use codex_app_server_protocol::RealtimeCallCreateResponse;
 use codex_backend_client::Client as BackendClient;
 use codex_core::config::Config;
 use codex_login::CodexAuth;
+use codex_login::auth_provider_from_auth;
 use codex_login::default_client::try_build_reqwest_client;
 use serde_json::Value as JsonValue;
 
@@ -55,61 +58,20 @@ async fn create_api_realtime_call(
     auth: &CodexAuth,
     params: RealtimeCallCreateParams,
 ) -> Result<String, JSONRPCErrorError> {
-    let token = auth
-        .get_token()
-        .map_err(|err| internal_error(format!("failed to read api key: {err}")))?;
-    let base_url = config
+    let provider = config
         .model_provider
-        .base_url
-        .as_deref()
-        .unwrap_or("https://api.openai.com/v1")
-        .trim_end_matches('/');
-    let url = format!("{base_url}/realtime/calls");
+        .to_api_provider(Some(AuthMode::ApiKey))
+        .map_err(|err| internal_error(format!("failed to build realtime call provider: {err}")))?;
+    let api_auth = auth_provider_from_auth(Some(auth.clone()), &config.model_provider)
+        .map_err(|err| internal_error(format!("failed to build realtime call auth: {err}")))?;
     let http = try_build_reqwest_client()
         .map_err(|err| internal_error(format!("failed to build HTTP client: {err}")))?;
-
-    let mut request = http
-        .post(&url)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Content-Type", "application/sdp")
-        .body(params.sdp);
-
-    if let Some(headers) = &config.model_provider.http_headers {
-        for (name, value) in headers {
-            request = request.header(name, value);
-        }
-    }
-
-    if let Some(headers) = &config.model_provider.env_http_headers {
-        for (name, env_var) in headers {
-            if let Ok(value) = std::env::var(env_var)
-                && !value.trim().is_empty()
-            {
-                request = request.header(name, value);
-            }
-        }
-    }
-
-    let response = request
-        .send()
+    let client = RealtimeCallClient::new(ReqwestTransport::new(http), provider, api_auth);
+    client
+        .create(params.sdp)
         .await
-        .map_err(|err| internal_error(format!("failed to create realtime call: {err}")))?;
-    let status = response.status();
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    let body = response.text().await.unwrap_or_default();
-
-    if !status.is_success() {
-        return Err(internal_error(format!(
-            "failed to create realtime call: POST {url} failed: {status}; content-type={content_type}; body={body}"
-        )));
-    }
-
-    Ok(body)
+        .map(|response| response.sdp)
+        .map_err(|err| internal_error(format!("failed to create realtime call: {err}")))
 }
 
 fn invalid_request_error(message: impl Into<String>) -> JSONRPCErrorError {

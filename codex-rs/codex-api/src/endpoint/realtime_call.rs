@@ -1,0 +1,191 @@
+use crate::auth::AuthProvider;
+use crate::endpoint::session::EndpointSession;
+use crate::error::ApiError;
+use crate::provider::Provider;
+use bytes::Bytes;
+use codex_client::HttpTransport;
+use codex_client::RequestTelemetry;
+use http::HeaderMap;
+use http::HeaderValue;
+use http::Method;
+use http::header::CONTENT_TYPE;
+use std::sync::Arc;
+use tracing::instrument;
+
+pub struct RealtimeCallClient<T: HttpTransport, A: AuthProvider> {
+    session: EndpointSession<T, A>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RealtimeCallResponse {
+    pub sdp: String,
+}
+
+impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
+    pub fn new(transport: T, provider: Provider, auth: A) -> Self {
+        Self {
+            session: EndpointSession::new(transport, provider, auth),
+        }
+    }
+
+    pub fn with_telemetry(self, request: Option<Arc<dyn RequestTelemetry>>) -> Self {
+        Self {
+            session: self.session.with_request_telemetry(request),
+        }
+    }
+
+    fn path() -> &'static str {
+        "realtime/calls"
+    }
+
+    #[instrument(
+        name = "realtime_call.create",
+        level = "info",
+        skip_all,
+        fields(
+            http.method = "POST",
+            api.path = "realtime/calls"
+        )
+    )]
+    pub async fn create(&self, sdp: String) -> Result<RealtimeCallResponse, ApiError> {
+        self.create_with_headers(sdp, HeaderMap::new()).await
+    }
+
+    pub async fn create_with_headers(
+        &self,
+        sdp: String,
+        extra_headers: HeaderMap,
+    ) -> Result<RealtimeCallResponse, ApiError> {
+        let resp = self
+            .session
+            .execute_with(
+                Method::POST,
+                Self::path(),
+                extra_headers,
+                /*body*/ None,
+                |req| {
+                    req.headers
+                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/sdp"));
+                    req.raw_body = Some(Bytes::from(sdp.clone()));
+                },
+            )
+            .await?;
+
+        let sdp = String::from_utf8(resp.body.to_vec()).map_err(|err| {
+            ApiError::Stream(format!(
+                "failed to decode realtime call SDP response: {err}"
+            ))
+        })?;
+
+        Ok(RealtimeCallResponse { sdp })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::RetryConfig;
+    use async_trait::async_trait;
+    use codex_client::Request;
+    use codex_client::Response;
+    use codex_client::StreamResponse;
+    use codex_client::TransportError;
+    use http::StatusCode;
+    use pretty_assertions::assert_eq;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    #[derive(Clone)]
+    struct CapturingTransport {
+        last_request: Arc<Mutex<Option<Request>>>,
+    }
+
+    impl CapturingTransport {
+        fn new() -> Self {
+            Self {
+                last_request: Arc::new(Mutex::new(None)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for CapturingTransport {
+        async fn execute(&self, req: Request) -> Result<Response, TransportError> {
+            *self.last_request.lock().unwrap() = Some(req);
+            Ok(Response {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: Bytes::from_static(b"v=0\r\n").into(),
+            })
+        }
+
+        async fn stream(&self, _req: Request) -> Result<StreamResponse, TransportError> {
+            Err(TransportError::Build("stream should not run".to_string()))
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct DummyAuth;
+
+    impl AuthProvider for DummyAuth {
+        fn bearer_token(&self) -> Option<String> {
+            Some("test-token".to_string())
+        }
+    }
+
+    fn provider(base_url: &str) -> Provider {
+        Provider {
+            name: "test".to_string(),
+            base_url: base_url.to_string(),
+            query_params: None,
+            headers: HeaderMap::new(),
+            retry: RetryConfig {
+                max_attempts: 1,
+                base_delay: Duration::from_millis(1),
+                retry_429: false,
+                retry_5xx: true,
+                retry_transport: true,
+            },
+            stream_idle_timeout: Duration::from_secs(1),
+        }
+    }
+
+    #[tokio::test]
+    async fn sends_sdp_offer_as_raw_body() {
+        let transport = CapturingTransport::new();
+        let client = RealtimeCallClient::new(
+            transport.clone(),
+            provider("https://api.openai.com/v1"),
+            DummyAuth,
+        );
+
+        let response = client
+            .create("v=offer\r\n".to_string())
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(
+            response,
+            RealtimeCallResponse {
+                sdp: "v=0\r\n".to_string()
+            }
+        );
+
+        let request = transport.last_request.lock().unwrap().clone().unwrap();
+        assert_eq!(request.method, Method::POST);
+        assert_eq!(request.url, "https://api.openai.com/v1/realtime/calls");
+        assert_eq!(
+            request.headers.get(CONTENT_TYPE).unwrap(),
+            HeaderValue::from_static("application/sdp")
+        );
+        assert_eq!(
+            request
+                .headers
+                .get(http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer test-token")
+        );
+        assert_eq!(request.raw_body, Some(Bytes::from_static(b"v=offer\r\n")));
+        assert_eq!(request.body, None);
+    }
+}
