@@ -6947,7 +6947,7 @@ impl CodexMessageProcessor {
         };
 
         match thread
-            .create_realtime_call(params.sdp, params.session)
+            .create_realtime_call(params.sdp, params.prompt, params.session_id)
             .await
         {
             Ok(sdp) => {

@@ -23,7 +23,6 @@ use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_protocol::user_input::UserInput;
-use serde_json::Value as JsonValue;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 use tokio::sync::watch;
@@ -75,9 +74,10 @@ impl CodexThread {
     pub async fn create_realtime_call(
         &self,
         sdp: String,
-        session: Option<JsonValue>,
+        prompt: String,
+        session_id: Option<String>,
     ) -> CodexResult<String> {
-        create_realtime_call(&self.codex.session, sdp, session).await
+        create_realtime_call(&self.codex.session, sdp, prompt, session_id).await
     }
 
     pub async fn shutdown_and_wait(&self) -> CodexResult<()> {

@@ -38,6 +38,7 @@ pub use crate::endpoint::realtime_websocket::RealtimeSessionConfig;
 pub use crate::endpoint::realtime_websocket::RealtimeSessionMode;
 pub use crate::endpoint::realtime_websocket::RealtimeWebsocketClient;
 pub use crate::endpoint::realtime_websocket::RealtimeWebsocketConnection;
+pub use crate::endpoint::realtime_websocket::session_update_session_json;
 pub use crate::endpoint::responses::ResponsesClient;
 pub use crate::endpoint::responses::ResponsesOptions;
 pub use crate::endpoint::responses_websocket::ResponsesWebsocketClient;

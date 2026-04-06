@@ -466,10 +466,31 @@ async fn prepare_realtime_start(
     if let Some(realtime_ws_base_url) = &config.experimental_realtime_ws_base_url {
         api_provider.base_url = realtime_ws_base_url.clone();
     }
+    let version = config.realtime.version;
+    let session_config =
+        build_realtime_session_config(sess, params.prompt, params.session_id).await?;
+    let requested_session_id = session_config.session_id.clone();
+    let extra_headers =
+        realtime_request_headers(requested_session_id.as_deref(), realtime_api_key.as_str())?;
+    Ok(PreparedRealtimeConversationStart {
+        api_provider,
+        extra_headers,
+        requested_session_id,
+        version,
+        session_config,
+    })
+}
+
+pub(crate) async fn build_realtime_session_config(
+    sess: &Arc<Session>,
+    prompt: String,
+    session_id: Option<String>,
+) -> CodexResult<RealtimeSessionConfig> {
+    let config = sess.get_config().await;
     let prompt = config
         .experimental_realtime_ws_backend_prompt
         .clone()
-        .unwrap_or(params.prompt);
+        .unwrap_or(prompt);
     let startup_context = match config.experimental_realtime_ws_startup_context.clone() {
         Some(startup_context) => startup_context,
         None => {
@@ -484,8 +505,7 @@ async fn prepare_realtime_start(
         format!("{prompt}\n\n{startup_context}")
     };
     let model = config.experimental_realtime_ws_model.clone();
-    let version = config.realtime.version;
-    let event_parser = match version {
+    let event_parser = match config.realtime.version {
         RealtimeWsVersion::V1 => RealtimeEventParser::V1,
         RealtimeWsVersion::V2 => RealtimeEventParser::RealtimeV2,
     };
@@ -493,22 +513,12 @@ async fn prepare_realtime_start(
         RealtimeWsMode::Conversational => RealtimeSessionMode::Conversational,
         RealtimeWsMode::Transcription => RealtimeSessionMode::Transcription,
     };
-    let requested_session_id = params.session_id.or(Some(sess.conversation_id.to_string()));
-    let session_config = RealtimeSessionConfig {
+    Ok(RealtimeSessionConfig {
         instructions: prompt,
         model,
-        session_id: requested_session_id.clone(),
+        session_id: Some(session_id.unwrap_or_else(|| sess.conversation_id.to_string())),
         event_parser,
         session_mode,
-    };
-    let extra_headers =
-        realtime_request_headers(requested_session_id.as_deref(), realtime_api_key.as_str())?;
-    Ok(PreparedRealtimeConversationStart {
-        api_provider,
-        extra_headers,
-        requested_session_id,
-        version,
-        session_config,
     })
 }
 

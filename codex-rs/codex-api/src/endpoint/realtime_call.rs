@@ -9,8 +9,12 @@ use http::HeaderMap;
 use http::HeaderValue;
 use http::Method;
 use http::header::CONTENT_TYPE;
+use serde_json::Value;
+use serde_json::to_string;
 use std::sync::Arc;
 use tracing::instrument;
+
+const MULTIPART_BOUNDARY: &str = "codex-realtime-call-boundary";
 
 pub struct RealtimeCallClient<T: HttpTransport, A: AuthProvider> {
     session: EndpointSession<T, A>,
@@ -51,6 +55,15 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
         self.create_with_headers(sdp, HeaderMap::new()).await
     }
 
+    pub async fn create_with_session(
+        &self,
+        sdp: String,
+        session: Value,
+    ) -> Result<RealtimeCallResponse, ApiError> {
+        self.create_with_session_and_headers(sdp, session, HeaderMap::new())
+            .await
+    }
+
     pub async fn create_with_headers(
         &self,
         sdp: String,
@@ -79,6 +92,62 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
 
         Ok(RealtimeCallResponse { sdp })
     }
+
+    pub async fn create_with_session_and_headers(
+        &self,
+        sdp: String,
+        session: Value,
+        extra_headers: HeaderMap,
+    ) -> Result<RealtimeCallResponse, ApiError> {
+        let body = multipart_body(&sdp, &session)?;
+        let resp = self
+            .session
+            .execute_with(
+                Method::POST,
+                Self::path(),
+                extra_headers,
+                /*body*/ None,
+                |req| {
+                    req.headers.insert(
+                        CONTENT_TYPE,
+                        HeaderValue::from_static(
+                            "multipart/form-data; boundary=codex-realtime-call-boundary",
+                        ),
+                    );
+                    req.raw_body = Some(Bytes::from(body.clone()));
+                },
+            )
+            .await?;
+
+        let sdp = String::from_utf8(resp.body.to_vec()).map_err(|err| {
+            ApiError::Stream(format!(
+                "failed to decode realtime call SDP response: {err}"
+            ))
+        })?;
+
+        Ok(RealtimeCallResponse { sdp })
+    }
+}
+
+fn multipart_body(sdp: &str, session: &Value) -> Result<Vec<u8>, ApiError> {
+    let session = to_string(session).map_err(|err| ApiError::InvalidRequest {
+        message: err.to_string(),
+    })?;
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}\r\n").as_bytes());
+    body.extend_from_slice(
+        b"Content-Disposition: form-data; name=\"sdp\"; filename=\"offer.sdp\"\r\n",
+    );
+    body.extend_from_slice(b"Content-Type: application/sdp\r\n\r\n");
+    body.extend_from_slice(sdp.as_bytes());
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}\r\n").as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"session\"\r\n");
+    body.extend_from_slice(b"Content-Type: application/json\r\n\r\n");
+    body.extend_from_slice(session.as_bytes());
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}--\r\n").as_bytes());
+    Ok(body)
 }
 
 #[cfg(test)]

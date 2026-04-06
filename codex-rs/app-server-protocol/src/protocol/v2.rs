@@ -3874,8 +3874,9 @@ pub struct ThreadRealtimeStopResponse {}
 pub struct ThreadRealtimeCallCreateParams {
     pub thread_id: String,
     pub sdp: String,
+    pub prompt: String,
     #[ts(optional = nullable)]
-    pub session: Option<JsonValue>,
+    pub session_id: Option<String>,
 }
 
 /// EXPERIMENTAL - response for creating a realtime WebRTC call.
