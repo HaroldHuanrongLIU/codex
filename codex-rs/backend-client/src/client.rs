@@ -265,6 +265,25 @@ impl Client {
         Ok(Self::rate_limit_snapshots_from_payload(payload))
     }
 
+    pub async fn create_realtime_call(
+        &self,
+        sdp: &str,
+        session: &serde_json::Value,
+    ) -> Result<String> {
+        let url = format!("{}/api/codex/realtime/calls", self.base_url);
+        let req = self
+            .http
+            .post(&url)
+            .headers(self.headers())
+            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+            .json(&serde_json::json!({
+                "sdp": sdp,
+                "session": session,
+            }));
+        let (body, _) = self.exec_request(req, "POST", &url).await?;
+        Ok(body)
+    }
+
     pub async fn list_tasks(
         &self,
         limit: Option<i32>,

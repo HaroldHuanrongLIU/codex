@@ -98,6 +98,7 @@ use codex_app_server_protocol::PluginSource;
 use codex_app_server_protocol::PluginSummary;
 use codex_app_server_protocol::PluginUninstallParams;
 use codex_app_server_protocol::PluginUninstallResponse;
+use codex_app_server_protocol::RealtimeCallCreateParams;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewDelivery as ApiReviewDelivery;
 use codex_app_server_protocol::ReviewStartParams;
@@ -840,6 +841,10 @@ impl CodexMessageProcessor {
             }
             ClientRequest::ThreadRealtimeStop { request_id, params } => {
                 self.thread_realtime_stop(to_connection_request_id(request_id), params)
+                    .await;
+            }
+            ClientRequest::RealtimeCallCreate { request_id, params } => {
+                self.realtime_call_create(to_connection_request_id(request_id), params)
                     .await;
             }
             ClientRequest::ReviewStart { request_id, params } => {
@@ -6925,6 +6930,18 @@ impl CodexMessageProcessor {
                 )
                 .await;
             }
+        }
+    }
+
+    async fn realtime_call_create(
+        &mut self,
+        request_id: ConnectionRequestId,
+        params: RealtimeCallCreateParams,
+    ) {
+        let auth = self.auth_manager.auth().await;
+        match crate::realtime_call::create_realtime_call(&self.config, auth, params).await {
+            Ok(response) => self.outgoing.send_response(request_id, response).await,
+            Err(error) => self.outgoing.send_error(request_id, error).await,
         }
     }
 

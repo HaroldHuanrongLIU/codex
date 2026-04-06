@@ -76,6 +76,7 @@ pub mod in_process;
 mod message_processor;
 mod models;
 mod outgoing_message;
+mod realtime_call;
 mod server_request_error;
 mod thread_state;
 mod thread_status;
