@@ -11,6 +11,7 @@ mod arc_monitor;
 mod client;
 mod client_common;
 pub mod codex;
+mod realtime_call;
 mod realtime_context;
 mod realtime_conversation;
 pub use codex::SteerInputError;

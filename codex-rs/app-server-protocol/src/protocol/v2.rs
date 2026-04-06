@@ -3871,7 +3871,8 @@ pub struct ThreadRealtimeStopResponse {}
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct RealtimeCallCreateParams {
+pub struct ThreadRealtimeCallCreateParams {
+    pub thread_id: String,
     pub sdp: String,
     #[ts(optional = nullable)]
     pub session: Option<JsonValue>,
@@ -3881,7 +3882,7 @@ pub struct RealtimeCallCreateParams {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct RealtimeCallCreateResponse {
+pub struct ThreadRealtimeCallCreateResponse {
     pub sdp: String,
 }
 

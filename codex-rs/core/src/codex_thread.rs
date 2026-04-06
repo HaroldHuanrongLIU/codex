@@ -3,6 +3,7 @@ use crate::codex::Codex;
 use crate::codex::SteerInputError;
 use crate::config::ConstraintResult;
 use crate::file_watcher::WatchRegistration;
+use crate::realtime_call::create_realtime_call;
 use codex_features::Feature;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::Personality;
@@ -22,6 +23,7 @@ use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_protocol::user_input::UserInput;
+use serde_json::Value as JsonValue;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 use tokio::sync::watch;
@@ -68,6 +70,14 @@ impl CodexThread {
 
     pub async fn submit(&self, op: Op) -> CodexResult<String> {
         self.codex.submit(op).await
+    }
+
+    pub async fn create_realtime_call(
+        &self,
+        sdp: String,
+        session: Option<JsonValue>,
+    ) -> CodexResult<String> {
+        create_realtime_call(&self.codex.session, sdp, session).await
     }
 
     pub async fn shutdown_and_wait(&self) -> CodexResult<()> {

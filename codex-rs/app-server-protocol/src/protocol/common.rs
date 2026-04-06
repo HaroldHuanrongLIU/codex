@@ -414,10 +414,10 @@ client_request_definitions! {
         params: v2::ThreadRealtimeStopParams,
         response: v2::ThreadRealtimeStopResponse,
     },
-    #[experimental("realtime/call/create")]
-    RealtimeCallCreate => "realtime/call/create" {
-        params: v2::RealtimeCallCreateParams,
-        response: v2::RealtimeCallCreateResponse,
+    #[experimental("thread/realtime/call/create")]
+    ThreadRealtimeCallCreate => "thread/realtime/call/create" {
+        params: v2::ThreadRealtimeCallCreateParams,
+        response: v2::ThreadRealtimeCallCreateResponse,
     },
     ReviewStart => "review/start" {
         params: v2::ReviewStartParams,

@@ -98,7 +98,6 @@ use codex_app_server_protocol::PluginSource;
 use codex_app_server_protocol::PluginSummary;
 use codex_app_server_protocol::PluginUninstallParams;
 use codex_app_server_protocol::PluginUninstallResponse;
-use codex_app_server_protocol::RealtimeCallCreateParams;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewDelivery as ApiReviewDelivery;
 use codex_app_server_protocol::ReviewStartParams;
@@ -142,6 +141,8 @@ use codex_app_server_protocol::ThreadRealtimeAppendAudioParams;
 use codex_app_server_protocol::ThreadRealtimeAppendAudioResponse;
 use codex_app_server_protocol::ThreadRealtimeAppendTextParams;
 use codex_app_server_protocol::ThreadRealtimeAppendTextResponse;
+use codex_app_server_protocol::ThreadRealtimeCallCreateParams;
+use codex_app_server_protocol::ThreadRealtimeCallCreateResponse;
 use codex_app_server_protocol::ThreadRealtimeStartParams;
 use codex_app_server_protocol::ThreadRealtimeStartResponse;
 use codex_app_server_protocol::ThreadRealtimeStopParams;
@@ -843,7 +844,7 @@ impl CodexMessageProcessor {
                 self.thread_realtime_stop(to_connection_request_id(request_id), params)
                     .await;
             }
-            ClientRequest::RealtimeCallCreate { request_id, params } => {
+            ClientRequest::ThreadRealtimeCallCreate { request_id, params } => {
                 self.realtime_call_create(to_connection_request_id(request_id), params)
                     .await;
             }
@@ -6936,12 +6937,34 @@ impl CodexMessageProcessor {
     async fn realtime_call_create(
         &mut self,
         request_id: ConnectionRequestId,
-        params: RealtimeCallCreateParams,
+        params: ThreadRealtimeCallCreateParams,
     ) {
-        let auth = self.auth_manager.auth().await;
-        match crate::realtime_call::create_realtime_call(&self.config, auth, params).await {
-            Ok(response) => self.outgoing.send_response(request_id, response).await,
-            Err(error) => self.outgoing.send_error(request_id, error).await,
+        let Some((_, thread)) = self
+            .prepare_realtime_conversation_thread(request_id.clone(), &params.thread_id)
+            .await
+        else {
+            return;
+        };
+
+        match thread
+            .create_realtime_call(params.sdp, params.session)
+            .await
+        {
+            Ok(sdp) => {
+                self.outgoing
+                    .send_response(request_id, ThreadRealtimeCallCreateResponse { sdp })
+                    .await;
+            }
+            Err(CodexErr::InvalidRequest(message)) => {
+                self.send_invalid_request_error(request_id, message).await;
+            }
+            Err(err) => {
+                self.send_internal_error(
+                    request_id,
+                    format!("failed to create realtime call: {err}"),
+                )
+                .await;
+            }
         }
     }
 
