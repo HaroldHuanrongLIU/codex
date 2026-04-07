@@ -329,7 +329,7 @@ async fn conversation_start_audio_text_close_round_trip() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn conversation_call_create_posts_session_with_intent() -> Result<()> {
+async fn conversation_call_create_posts_generated_session() -> Result<()> {
     let server = start_mock_server().await;
     let capture = RealtimeCallRequestCapture::new();
     Mock::given(method("POST"))
@@ -366,14 +366,7 @@ async fn conversation_call_create_posts_session_with_intent() -> Result<()> {
 
     let request = capture.single_request();
     assert_eq!(request.url.path(), "/v1/realtime/calls");
-    assert_eq!(
-        request
-            .url
-            .query_pairs()
-            .find(|(key, _)| key == "intent")
-            .map(|(_, value)| value.to_string()),
-        Some("quicksilver".to_string())
-    );
+    assert_eq!(request.url.query(), None);
     assert_eq!(
         request
             .headers
