@@ -70,7 +70,13 @@ pub fn session_update_session_json(config: RealtimeSessionConfig) -> JsonResult<
         config.instructions,
         config.session_mode,
     );
-    to_value(session)
+    let mut session = to_value(session)?;
+    if let Some(session_id) = config.session_id
+        && let Some(session_object) = session.as_object_mut()
+    {
+        session_object.insert("id".to_string(), Value::String(session_id));
+    }
+    Ok(session)
 }
 
 pub(super) fn websocket_intent(event_parser: RealtimeEventParser) -> Option<&'static str> {

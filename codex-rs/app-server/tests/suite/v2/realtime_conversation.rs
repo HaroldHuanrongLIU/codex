@@ -469,6 +469,7 @@ async fn realtime_call_create_returns_offer() -> Result<()> {
     assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
     assert!(body.contains("v=offer\r\n"));
     assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
+    assert!(body.contains(r#""id":"sess_app""#));
     assert!(body.contains(r#""type":"realtime""#));
     assert!(body.contains("backend prompt"));
     assert!(body.contains(STARTUP_CONTEXT_HEADER));
