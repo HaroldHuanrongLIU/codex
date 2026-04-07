@@ -26,6 +26,7 @@ use crate::connectors;
 use crate::exec_policy::ExecPolicyManager;
 use crate::parse_turn_item;
 use crate::path_utils::normalize_for_native_workdir;
+use crate::realtime_call::handle_create as handle_realtime_call_create;
 use crate::realtime_conversation::RealtimeConversationManager;
 use crate::realtime_conversation::handle_audio as handle_realtime_conversation_audio;
 use crate::realtime_conversation::handle_close as handle_realtime_conversation_close;
@@ -4536,6 +4537,21 @@ async fn submission_loop(sess: Arc<Session>, config: Arc<Config>, rx_sub: Receiv
                 }
                 Op::RealtimeConversationClose => {
                     handle_realtime_conversation_close(&sess, sub.id.clone()).await;
+                    false
+                }
+                Op::RealtimeConversationCallCreate(params) => {
+                    if let Err(err) =
+                        handle_realtime_call_create(&sess, sub.id.clone(), params).await
+                    {
+                        sess.send_event_raw(Event {
+                            id: sub.id.clone(),
+                            msg: EventMsg::Error(ErrorEvent {
+                                message: err.to_string(),
+                                codex_error_info: Some(CodexErrorInfo::Other),
+                            }),
+                        })
+                        .await;
+                    }
                     false
                 }
                 Op::OverrideTurnContext {

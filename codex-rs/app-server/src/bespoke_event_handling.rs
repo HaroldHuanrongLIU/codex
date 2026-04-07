@@ -76,6 +76,7 @@ use codex_app_server_protocol::SkillsChangedNotification;
 use codex_app_server_protocol::TerminalInteractionNotification;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadNameUpdatedNotification;
+use codex_app_server_protocol::ThreadRealtimeCallCreateResponse;
 use codex_app_server_protocol::ThreadRealtimeClosedNotification;
 use codex_app_server_protocol::ThreadRealtimeErrorNotification;
 use codex_app_server_protocol::ThreadRealtimeItemAddedNotification;
@@ -342,6 +343,20 @@ pub(crate) async fn apply_bespoke_event_handling(
                     .send_server_notification(ServerNotification::ThreadRealtimeStarted(
                         notification,
                     ))
+                    .await;
+            }
+        }
+        EventMsg::RealtimeConversationCallCreated(event) => {
+            let pending = {
+                let mut state = thread_state.lock().await;
+                state.pending_realtime_call_creates.remove(&event_turn_id)
+            };
+            if let Some(request_id) = pending {
+                outgoing
+                    .send_response(
+                        request_id,
+                        ThreadRealtimeCallCreateResponse { sdp: event.sdp },
+                    )
                     .await;
             }
         }
@@ -1331,6 +1346,23 @@ pub(crate) async fn apply_bespoke_event_handling(
 
             let message = ev.message.clone();
             let codex_error_info = ev.codex_error_info.clone();
+            let pending_realtime_call_create = {
+                let mut state = thread_state.lock().await;
+                state.pending_realtime_call_creates.remove(&event_turn_id)
+            };
+            if let Some(request_id) = pending_realtime_call_create {
+                outgoing
+                    .send_error(
+                        request_id,
+                        JSONRPCErrorError {
+                            code: INTERNAL_ERROR_CODE,
+                            message,
+                            data: None,
+                        },
+                    )
+                    .await;
+                return;
+            }
 
             // If this error belongs to an in-flight `thread/rollback` request, fail that request
             // (and clear pending state) so subsequent rollbacks are unblocked.

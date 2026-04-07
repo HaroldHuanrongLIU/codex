@@ -206,6 +206,14 @@ pub struct ConversationTextParams {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
+pub struct ConversationCallCreateParams {
+    pub sdp: String,
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
 /// Submission operation
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -231,6 +239,9 @@ pub enum Op {
 
     /// Close the running realtime conversation stream.
     RealtimeConversationClose,
+
+    /// Create a realtime call from a local SDP offer.
+    RealtimeConversationCallCreate(ConversationCallCreateParams),
 
     /// Legacy user input.
     ///
@@ -578,6 +589,7 @@ impl Op {
             Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
             Self::RealtimeConversationText(_) => "realtime_conversation_text",
             Self::RealtimeConversationClose => "realtime_conversation_close",
+            Self::RealtimeConversationCallCreate(_) => "realtime_conversation_call_create",
             Self::UserInput { .. } => "user_input",
             Self::UserTurn { .. } => "user_turn",
             Self::InterAgentCommunication { .. } => "inter_agent_communication",
@@ -1237,6 +1249,9 @@ pub enum EventMsg {
     /// Realtime conversation lifecycle close event.
     RealtimeConversationClosed(RealtimeConversationClosedEvent),
 
+    /// Realtime call creation completed.
+    RealtimeConversationCallCreated(RealtimeConversationCallCreatedEvent),
+
     /// Model routing changed from the requested model to a different model.
     ModelReroute(ModelRerouteEvent),
 
@@ -1537,6 +1552,11 @@ pub struct RealtimeConversationRealtimeEvent {
 pub struct RealtimeConversationClosedEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
+pub struct RealtimeConversationCallCreatedEvent {
+    pub sdp: String,
 }
 
 impl From<CollabAgentSpawnBeginEvent> for EventMsg {
@@ -4400,6 +4420,11 @@ mod tests {
             text: "hello".to_string(),
         });
         let close = Op::RealtimeConversationClose;
+        let call_create = Op::RealtimeConversationCallCreate(ConversationCallCreateParams {
+            sdp: "v=offer\r\n".to_string(),
+            prompt: "be helpful".to_string(),
+            session_id: Some("conv_1".to_string()),
+        });
 
         assert_eq!(
             serde_json::to_value(&start).unwrap(),
@@ -4434,6 +4459,15 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<Op>(serde_json::to_value(&close).unwrap()).unwrap(),
             close
+        );
+        assert_eq!(
+            serde_json::to_value(&call_create).unwrap(),
+            json!({
+                "type": "realtime_conversation_call_create",
+                "sdp": "v=offer\r\n",
+                "prompt": "be helpful",
+                "session_id": "conv_1"
+            })
         );
     }
 

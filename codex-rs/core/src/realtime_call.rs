@@ -13,17 +13,20 @@ use codex_login::default_client::build_reqwest_client;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
+use codex_protocol::protocol::ConversationCallCreateParams;
+use codex_protocol::protocol::Event;
+use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::RealtimeConversationCallCreatedEvent;
 use serde_json::Value as JsonValue;
 
 use crate::codex::Session;
 use crate::realtime_conversation::build_realtime_session_config;
 
-pub(crate) async fn create_realtime_call(
+pub(crate) async fn handle_create(
     sess: &Arc<Session>,
-    sdp: String,
-    prompt: String,
-    session_id: Option<String>,
-) -> CodexResult<String> {
+    sub_id: String,
+    params: ConversationCallCreateParams,
+) -> CodexResult<()> {
     let provider = sess.provider().await;
     let auth_manager = sess
         .services
@@ -36,14 +39,22 @@ pub(crate) async fn create_realtime_call(
         )
     })?;
 
-    let session = realtime_session_json(sess, prompt, session_id).await?;
-
-    match auth.auth_mode() {
-        AuthMode::ApiKey => create_api_realtime_call(&provider, &auth, sdp, session).await,
+    let session = realtime_session_json(sess, params.prompt, params.session_id).await?;
+    let sdp = match auth.auth_mode() {
+        AuthMode::ApiKey => create_api_realtime_call(&provider, &auth, params.sdp, session).await,
         AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => {
-            create_chatgpt_realtime_call(sess, &provider, &auth, sdp, session).await
+            create_chatgpt_realtime_call(sess, &provider, &auth, params.sdp, session).await
         }
-    }
+    }?;
+
+    sess.send_event_raw(Event {
+        id: sub_id,
+        msg: EventMsg::RealtimeConversationCallCreated(RealtimeConversationCallCreatedEvent {
+            sdp,
+        }),
+    })
+    .await;
+    Ok(())
 }
 
 async fn realtime_session_json(

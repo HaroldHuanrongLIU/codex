@@ -3,7 +3,6 @@ use crate::codex::Codex;
 use crate::codex::SteerInputError;
 use crate::config::ConstraintResult;
 use crate::file_watcher::WatchRegistration;
-use crate::realtime_call::create_realtime_call;
 use codex_features::Feature;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::Personality;
@@ -69,15 +68,6 @@ impl CodexThread {
 
     pub async fn submit(&self, op: Op) -> CodexResult<String> {
         self.codex.submit(op).await
-    }
-
-    pub async fn create_realtime_call(
-        &self,
-        sdp: String,
-        prompt: String,
-        session_id: Option<String>,
-    ) -> CodexResult<String> {
-        create_realtime_call(&self.codex.session, sdp, prompt, session_id).await
     }
 
     pub async fn shutdown_and_wait(&self) -> CodexResult<()> {

@@ -142,7 +142,6 @@ use codex_app_server_protocol::ThreadRealtimeAppendAudioResponse;
 use codex_app_server_protocol::ThreadRealtimeAppendTextParams;
 use codex_app_server_protocol::ThreadRealtimeAppendTextResponse;
 use codex_app_server_protocol::ThreadRealtimeCallCreateParams;
-use codex_app_server_protocol::ThreadRealtimeCallCreateResponse;
 use codex_app_server_protocol::ThreadRealtimeStartParams;
 use codex_app_server_protocol::ThreadRealtimeStartResponse;
 use codex_app_server_protocol::ThreadRealtimeStopParams;
@@ -266,6 +265,7 @@ use codex_protocol::items::TurnItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::ConversationAudioParams;
+use codex_protocol::protocol::ConversationCallCreateParams;
 use codex_protocol::protocol::ConversationStartParams;
 use codex_protocol::protocol::ConversationTextParams;
 use codex_protocol::protocol::EventMsg;
@@ -281,6 +281,7 @@ use codex_protocol::protocol::ReviewTarget as CoreReviewTarget;
 use codex_protocol::protocol::RolloutItem;
 use codex_protocol::protocol::SessionConfiguredEvent;
 use codex_protocol::protocol::SessionMetaLine;
+use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::USER_MESSAGE_BEGIN;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_protocol::user_input::MAX_USER_INPUT_TEXT_CHARS;
@@ -6946,19 +6947,42 @@ impl CodexMessageProcessor {
             return;
         };
 
-        match thread
-            .create_realtime_call(params.sdp, params.prompt, params.session_id)
+        let submission_id = Uuid::now_v7().to_string();
+        let thread_state = self
+            .thread_state_manager
+            .thread_state(params.thread_id.into())
+            .await;
+        thread_state
+            .lock()
             .await
-        {
-            Ok(sdp) => {
-                self.outgoing
-                    .send_response(request_id, ThreadRealtimeCallCreateResponse { sdp })
-                    .await;
-            }
+            .pending_realtime_call_creates
+            .insert(submission_id.clone(), request_id.clone());
+
+        let submission = Submission {
+            id: submission_id.clone(),
+            op: Op::RealtimeConversationCallCreate(ConversationCallCreateParams {
+                sdp: params.sdp,
+                prompt: params.prompt,
+                session_id: params.session_id,
+            }),
+            trace: self.request_trace_context(&request_id).await,
+        };
+        match thread.submit_with_id(submission).await {
+            Ok(()) => {}
             Err(CodexErr::InvalidRequest(message)) => {
+                thread_state
+                    .lock()
+                    .await
+                    .pending_realtime_call_creates
+                    .remove(&submission_id);
                 self.send_invalid_request_error(request_id, message).await;
             }
             Err(err) => {
+                thread_state
+                    .lock()
+                    .await
+                    .pending_realtime_call_creates
+                    .remove(&submission_id);
                 self.send_internal_error(
                     request_id,
                     format!("failed to create realtime call: {err}"),
