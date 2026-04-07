@@ -31,12 +31,14 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use codex_api::CodexBackendRealtimeCallClient as ApiCodexBackendRealtimeCallClient;
 use codex_api::CompactClient as ApiCompactClient;
 use codex_api::CompactionInput as ApiCompactionInput;
 use codex_api::MemoriesClient as ApiMemoriesClient;
 use codex_api::MemorySummarizeInput as ApiMemorySummarizeInput;
 use codex_api::MemorySummarizeOutput as ApiMemorySummarizeOutput;
 use codex_api::RawMemory as ApiRawMemory;
+use codex_api::RealtimeCallClient as ApiRealtimeCallClient;
 use codex_api::RequestTelemetry;
 use codex_api::ReqwestTransport;
 use codex_api::ResponseCreateWsRequest;
@@ -433,6 +435,43 @@ impl ModelClient {
             .compact_input(&payload, extra_headers)
             .await
             .map_err(map_api_error)
+    }
+
+    pub async fn create_realtime_call(
+        &self,
+        sdp: String,
+        session: serde_json::Value,
+        chatgpt_base_url: &str,
+    ) -> Result<String> {
+        let client_setup = self.current_client_setup().await?;
+        let auth_mode = client_setup.auth.as_ref().map(CodexAuth::auth_mode);
+        let transport = ReqwestTransport::new(build_reqwest_client());
+        match auth_mode {
+            Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens) => {
+                let mut api_provider = client_setup.api_provider;
+                api_provider.base_url = chatgpt_base_url.trim_end_matches('/').to_string();
+                ApiCodexBackendRealtimeCallClient::new(
+                    transport,
+                    api_provider,
+                    client_setup.api_auth,
+                )
+                .create(&sdp, &session)
+                .await
+                .map_err(map_api_error)
+            }
+            Some(AuthMode::ApiKey) => ApiRealtimeCallClient::new(
+                transport,
+                client_setup.api_provider,
+                client_setup.api_auth,
+            )
+            .create_with_session(sdp, session)
+            .await
+            .map(|response| response.sdp)
+            .map_err(map_api_error),
+            None => Err(CodexErr::InvalidRequest(
+                "codex account authentication required to create realtime call".to_string(),
+            )),
+        }
     }
 
     /// Builds memory summaries for each provided normalized raw memory.
