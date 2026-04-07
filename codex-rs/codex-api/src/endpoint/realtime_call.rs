@@ -99,7 +99,24 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
         session: Value,
         extra_headers: HeaderMap,
     ) -> Result<RealtimeCallResponse, ApiError> {
-        let body = multipart_body(&sdp, &session)?;
+        let session = to_string(&session).map_err(|err| ApiError::InvalidRequest {
+            message: err.to_string(),
+        })?;
+        let mut body = Vec::new();
+        body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}\r\n").as_bytes());
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"sdp\"; filename=\"offer.sdp\"\r\n",
+        );
+        body.extend_from_slice(b"Content-Type: application/sdp\r\n\r\n");
+        body.extend_from_slice(sdp.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}\r\n").as_bytes());
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"session\"\r\n");
+        body.extend_from_slice(b"Content-Type: application/json\r\n\r\n");
+        body.extend_from_slice(session.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}--\r\n").as_bytes());
+
         let resp = self
             .session
             .execute_with(
@@ -127,27 +144,6 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
 
         Ok(RealtimeCallResponse { sdp })
     }
-}
-
-fn multipart_body(sdp: &str, session: &Value) -> Result<Vec<u8>, ApiError> {
-    let session = to_string(session).map_err(|err| ApiError::InvalidRequest {
-        message: err.to_string(),
-    })?;
-    let mut body = Vec::new();
-    body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}\r\n").as_bytes());
-    body.extend_from_slice(
-        b"Content-Disposition: form-data; name=\"sdp\"; filename=\"offer.sdp\"\r\n",
-    );
-    body.extend_from_slice(b"Content-Type: application/sdp\r\n\r\n");
-    body.extend_from_slice(sdp.as_bytes());
-    body.extend_from_slice(b"\r\n");
-    body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}\r\n").as_bytes());
-    body.extend_from_slice(b"Content-Disposition: form-data; name=\"session\"\r\n");
-    body.extend_from_slice(b"Content-Type: application/json\r\n\r\n");
-    body.extend_from_slice(session.as_bytes());
-    body.extend_from_slice(b"\r\n");
-    body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}--\r\n").as_bytes());
-    Ok(body)
 }
 
 #[cfg(test)]
