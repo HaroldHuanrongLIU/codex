@@ -9,6 +9,7 @@ use codex_protocol::protocol::RealtimeConversationCallCreatedEvent;
 use serde_json::Value as JsonValue;
 
 use crate::codex::Session;
+use crate::realtime_conversation::RealtimeSessionInstructions;
 use crate::realtime_conversation::build_realtime_session_config;
 
 pub(crate) async fn handle_create(
@@ -16,7 +17,7 @@ pub(crate) async fn handle_create(
     sub_id: String,
     params: ConversationCallCreateParams,
 ) -> CodexResult<()> {
-    let session = realtime_session_json(sess, params.prompt, params.session_id).await?;
+    let session = realtime_session_json(sess).await?;
     let sdp = sess
         .services
         .model_client
@@ -33,12 +34,13 @@ pub(crate) async fn handle_create(
     Ok(())
 }
 
-async fn realtime_session_json(
-    sess: &Arc<Session>,
-    prompt: String,
-    session_id: Option<String>,
-) -> CodexResult<JsonValue> {
-    let session_config = build_realtime_session_config(sess, prompt, session_id).await?;
+async fn realtime_session_json(sess: &Arc<Session>) -> CodexResult<JsonValue> {
+    let session_config = build_realtime_session_config(
+        sess,
+        RealtimeSessionInstructions::ConfigOnly,
+        /*session_id*/ None,
+    )
+    .await?;
     let model = session_config.model.clone();
     let mut session = session_update_session_json(session_config)?;
     if let Some(model) = model

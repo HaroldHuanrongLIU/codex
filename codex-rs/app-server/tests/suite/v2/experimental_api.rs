@@ -109,8 +109,6 @@ async fn realtime_call_create_requires_experimental_api_capability() -> Result<(
         .send_thread_realtime_call_create_request(ThreadRealtimeCallCreateParams {
             thread_id: "thr_123".to_string(),
             sdp: "v=offer\r\n".to_string(),
-            prompt: "hello".to_string(),
-            session_id: None,
         })
         .await?;
     let error = timeout(

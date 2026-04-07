@@ -156,7 +156,7 @@ Example with notification opt-out:
 - `thread/realtime/appendAudio` — append an input audio chunk to the active realtime session (experimental); returns `{}`.
 - `thread/realtime/appendText` — append text input to the active realtime session (experimental); returns `{}`.
 - `thread/realtime/stop` — stop the active realtime session for the thread (experimental); returns `{}`.
-- `thread/realtime/call/create` — create a thread-scoped WebRTC realtime call from a browser-generated SDP offer (experimental); params include `threadId`, `sdp`, `prompt`, and optional `sessionId`, and returns `{ sdp }` with the remote answer SDP. Core builds the realtime session config, then API key auth posts to `/v1/realtime/calls` and ChatGPT auth uses the codex-backend proxy.
+- `thread/realtime/call/create` — create a thread-scoped WebRTC realtime call from a browser-generated SDP offer (experimental); params include `threadId` and `sdp`, and returns `{ sdp }` with the remote answer SDP. Core builds the realtime session config using the thread conversation id and `experimental_realtime_ws_backend_prompt`, then API key auth posts to `/v1/realtime/calls` and ChatGPT auth uses the codex-backend proxy.
 - `review/start` — kick off Codex’s automated reviewer for a thread; responds like `turn/start` and emits `item/started`/`item/completed` notifications with `enteredReviewMode` and `exitedReviewMode` items, plus a final assistant `agentMessage` containing the review.
 - `command/exec` — run a single command under the server sandbox without starting a thread/turn (handy for utilities and validation).
 - `command/exec/write` — write base64-decoded stdin bytes to a running `command/exec` session or close stdin; returns `{}`.
@@ -586,14 +586,12 @@ const offer = await pc.createOffer();
 await pc.setLocalDescription(offer);
 ```
 
-Then send `offer.sdp` to app-server. The returned `sdp` is the remote answer SDP and should be passed to `setRemoteDescription()`:
+Then send `offer.sdp` to app-server. Core uses `experimental_realtime_ws_backend_prompt` for the backend instructions and the thread conversation id for the realtime session id. The returned `sdp` is the remote answer SDP and should be passed to `setRemoteDescription()`:
 
 ```json
 { "method": "thread/realtime/call/create", "id": 40, "params": {
     "threadId": "thr_123",
-    "sdp": "v=0\r\no=...",
-    "prompt": "You are helping the user work in Codex.",
-    "sessionId": "sess_ui_123"
+    "sdp": "v=0\r\no=..."
 } }
 { "id": 40, "result": { "sdp": "v=0\r\no=..." } }
 ```

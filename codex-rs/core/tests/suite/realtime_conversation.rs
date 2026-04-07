@@ -346,6 +346,7 @@ async fn conversation_call_create_posts_generated_session() -> Result<()> {
         .await;
 
     let mut builder = test_codex().with_config(|config| {
+        config.experimental_realtime_ws_backend_prompt = Some("backend prompt".to_string());
         config.experimental_realtime_ws_model = Some("realtime-test-model".to_string());
         config.experimental_realtime_ws_startup_context = Some("startup context".to_string());
     });
@@ -355,8 +356,6 @@ async fn conversation_call_create_posts_generated_session() -> Result<()> {
         .submit(Op::RealtimeConversationCallCreate(
             ConversationCallCreateParams {
                 sdp: "v=offer\r\n".to_string(),
-                prompt: "backend prompt".to_string(),
-                session_id: Some("sess_call".to_string()),
             },
         ))
         .await?;
@@ -392,7 +391,6 @@ async fn conversation_call_create_posts_generated_session() -> Result<()> {
     assert!(!body.contains("filename="));
     assert!(body.contains("v=offer\r\n"));
     assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
-    assert!(!body.contains(r#""id":"sess_call""#));
     assert!(body.contains(r#""type":"quicksilver""#));
     assert!(body.contains("backend prompt"));
     assert!(body.contains("startup context"));

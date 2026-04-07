@@ -209,9 +209,6 @@ pub struct ConversationTextParams {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
 pub struct ConversationCallCreateParams {
     pub sdp: String,
-    pub prompt: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
 }
 
 /// Submission operation
@@ -4442,8 +4439,6 @@ mod tests {
         let close = Op::RealtimeConversationClose;
         let call_create = Op::RealtimeConversationCallCreate(ConversationCallCreateParams {
             sdp: "v=offer\r\n".to_string(),
-            prompt: "be helpful".to_string(),
-            session_id: Some("conv_1".to_string()),
         });
 
         assert_eq!(
@@ -4484,9 +4479,7 @@ mod tests {
             serde_json::to_value(&call_create).unwrap(),
             json!({
                 "type": "realtime_conversation_call_create",
-                "sdp": "v=offer\r\n",
-                "prompt": "be helpful",
-                "session_id": "conv_1"
+                "sdp": "v=offer\r\n"
             })
         );
     }

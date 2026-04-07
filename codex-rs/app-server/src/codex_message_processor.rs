@@ -7008,8 +7008,6 @@ impl CodexMessageProcessor {
             id: submission_id.clone(),
             op: Op::RealtimeConversationCallCreate(ConversationCallCreateParams {
                 sdp: params.sdp,
-                prompt: params.prompt,
-                session_id: params.session_id,
             }),
             trace: self.request_trace_context(&request_id).await,
         };

@@ -467,8 +467,12 @@ async fn prepare_realtime_start(
         api_provider.base_url = realtime_ws_base_url.clone();
     }
     let version = config.realtime.version;
-    let session_config =
-        build_realtime_session_config(sess, params.prompt, params.session_id).await?;
+    let session_config = build_realtime_session_config(
+        sess,
+        RealtimeSessionInstructions::ClientProvided(params.prompt),
+        params.session_id,
+    )
+    .await?;
     let requested_session_id = session_config.session_id.clone();
     let extra_headers =
         realtime_request_headers(requested_session_id.as_deref(), realtime_api_key.as_str())?;
@@ -481,16 +485,27 @@ async fn prepare_realtime_start(
     })
 }
 
+pub(crate) enum RealtimeSessionInstructions {
+    ClientProvided(String),
+    ConfigOnly,
+}
+
 pub(crate) async fn build_realtime_session_config(
     sess: &Arc<Session>,
-    prompt: String,
+    instructions: RealtimeSessionInstructions,
     session_id: Option<String>,
 ) -> CodexResult<RealtimeSessionConfig> {
     let config = sess.get_config().await;
-    let prompt = config
-        .experimental_realtime_ws_backend_prompt
-        .clone()
-        .unwrap_or(prompt);
+    let prompt = match instructions {
+        RealtimeSessionInstructions::ClientProvided(prompt) => config
+            .experimental_realtime_ws_backend_prompt
+            .clone()
+            .unwrap_or(prompt),
+        RealtimeSessionInstructions::ConfigOnly => config
+            .experimental_realtime_ws_backend_prompt
+            .clone()
+            .unwrap_or_default(),
+    };
     let startup_context = match config.experimental_realtime_ws_startup_context.clone() {
         Some(startup_context) => startup_context,
         None => {

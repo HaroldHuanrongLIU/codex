@@ -451,8 +451,6 @@ async fn realtime_call_create_returns_offer() -> Result<()> {
         .send_thread_realtime_call_create_request(ThreadRealtimeCallCreateParams {
             thread_id: thread_start.thread.id,
             sdp: "v=offer\r\n".to_string(),
-            prompt: "backend prompt".to_string(),
-            session_id: Some("sess_app".to_string()),
         })
         .await?;
     let call_response: JSONRPCResponse = timeout(
@@ -476,7 +474,6 @@ async fn realtime_call_create_returns_offer() -> Result<()> {
     assert!(!body.contains("filename="));
     assert!(body.contains("v=offer\r\n"));
     assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
-    assert!(!body.contains(r#""id":"sess_app""#));
     assert!(body.contains(r#""type":"realtime""#));
     assert!(body.contains("backend prompt"));
     assert!(body.contains(STARTUP_CONTEXT_HEADER));
@@ -523,8 +520,6 @@ async fn realtime_call_create_surfaces_backend_error() -> Result<()> {
         .send_thread_realtime_call_create_request(ThreadRealtimeCallCreateParams {
             thread_id: thread_start.thread.id,
             sdp: "v=offer\r\n".to_string(),
-            prompt: "backend prompt".to_string(),
-            session_id: Some("sess_app".to_string()),
         })
         .await?;
     let error = timeout(
