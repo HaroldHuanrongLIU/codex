@@ -9,8 +9,10 @@ use http::HeaderMap;
 use http::HeaderValue;
 use http::Method;
 use http::header::CONTENT_TYPE;
+use serde::Serialize;
 use serde_json::Value;
 use serde_json::to_string;
+use serde_json::to_value;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -23,6 +25,12 @@ pub struct RealtimeCallClient<T: HttpTransport, A: AuthProvider> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RealtimeCallResponse {
     pub sdp: String,
+}
+
+#[derive(Serialize)]
+struct BackendRealtimeCallRequest<'a> {
+    sdp: &'a str,
+    session: &'a Value,
 }
 
 impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
@@ -40,6 +48,10 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
 
     fn path() -> &'static str {
         "realtime/calls"
+    }
+
+    fn uses_backend_request_shape(&self) -> bool {
+        self.session.provider().base_url.contains("/backend-api")
     }
 
     #[instrument(
@@ -84,11 +96,7 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
             )
             .await?;
 
-        let sdp = String::from_utf8(resp.body.to_vec()).map_err(|err| {
-            ApiError::Stream(format!(
-                "failed to decode realtime call SDP response: {err}"
-            ))
-        })?;
+        let sdp = decode_sdp_response(resp.body.as_ref())?;
 
         Ok(RealtimeCallResponse { sdp })
     }
@@ -99,6 +107,20 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
         session: Value,
         extra_headers: HeaderMap,
     ) -> Result<RealtimeCallResponse, ApiError> {
+        if self.uses_backend_request_shape() {
+            let body = to_value(BackendRealtimeCallRequest {
+                sdp: &sdp,
+                session: &session,
+            })
+            .map_err(|err| ApiError::Stream(format!("failed to encode realtime call: {err}")))?;
+            let resp = self
+                .session
+                .execute(Method::POST, Self::path(), extra_headers, Some(body))
+                .await?;
+            let sdp = decode_sdp_response(resp.body.as_ref())?;
+            return Ok(RealtimeCallResponse { sdp });
+        }
+
         let session = to_string(&session).map_err(|err| ApiError::InvalidRequest {
             message: err.to_string(),
         })?;
@@ -136,14 +158,18 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
             )
             .await?;
 
-        let sdp = String::from_utf8(resp.body.to_vec()).map_err(|err| {
-            ApiError::Stream(format!(
-                "failed to decode realtime call SDP response: {err}"
-            ))
-        })?;
+        let sdp = decode_sdp_response(resp.body.as_ref())?;
 
         Ok(RealtimeCallResponse { sdp })
     }
+}
+
+fn decode_sdp_response(body: &[u8]) -> Result<String, ApiError> {
+    String::from_utf8(body.to_vec()).map_err(|err| {
+        ApiError::Stream(format!(
+            "failed to decode realtime call SDP response: {err}"
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -252,5 +278,90 @@ mod tests {
         );
         assert_eq!(request.raw_body, Some(Bytes::from_static(b"v=offer\r\n")));
         assert_eq!(request.body, None);
+    }
+
+    #[tokio::test]
+    async fn sends_api_session_call_as_multipart_body() {
+        let transport = CapturingTransport::new();
+        let client = RealtimeCallClient::new(
+            transport.clone(),
+            provider("https://api.openai.com/v1"),
+            DummyAuth,
+        );
+
+        let response = client
+            .create_with_session(
+                "v=offer\r\n".to_string(),
+                serde_json::json!({"type": "realtime", "instructions": "hi"}),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(
+            response,
+            RealtimeCallResponse {
+                sdp: "v=0\r\n".to_string()
+            }
+        );
+
+        let request = transport.last_request.lock().unwrap().clone().unwrap();
+        assert_eq!(request.method, Method::POST);
+        assert_eq!(request.url, "https://api.openai.com/v1/realtime/calls");
+        assert_eq!(
+            request.headers.get(CONTENT_TYPE).unwrap(),
+            HeaderValue::from_static("multipart/form-data; boundary=codex-realtime-call-boundary")
+        );
+        let body = request.raw_body.expect("multipart body");
+        let body = std::str::from_utf8(&body).expect("multipart body should be utf-8");
+        assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
+        assert!(body.contains("Content-Type: application/sdp"));
+        assert!(body.contains("v=offer\r\n"));
+        assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
+        assert!(body.contains("Content-Type: application/json"));
+        assert!(body.contains(r#""instructions":"hi""#));
+        assert_eq!(request.body, None);
+    }
+
+    #[tokio::test]
+    async fn sends_backend_session_call_as_json_body() {
+        let transport = CapturingTransport::new();
+        let client = RealtimeCallClient::new(
+            transport.clone(),
+            provider("https://chatgpt.com/backend-api/codex"),
+            DummyAuth,
+        );
+
+        let response = client
+            .create_with_session(
+                "v=offer\r\n".to_string(),
+                serde_json::json!({"type": "realtime", "instructions": "hi"}),
+            )
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(
+            response,
+            RealtimeCallResponse {
+                sdp: "v=0\r\n".to_string()
+            }
+        );
+
+        let request = transport.last_request.lock().unwrap().clone().unwrap();
+        assert_eq!(request.method, Method::POST);
+        assert_eq!(
+            request.url,
+            "https://chatgpt.com/backend-api/codex/realtime/calls"
+        );
+        assert_eq!(request.raw_body, None);
+        assert_eq!(
+            request.body,
+            Some(serde_json::json!({
+                "sdp": "v=offer\r\n",
+                "session": {
+                    "type": "realtime",
+                    "instructions": "hi"
+                }
+            }))
+        );
     }
 }
