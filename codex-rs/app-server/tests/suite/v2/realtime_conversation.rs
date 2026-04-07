@@ -533,7 +533,12 @@ async fn realtime_call_create_surfaces_backend_error() -> Result<()> {
     )
     .await??;
     assert_eq!(error.error.code, INTERNAL_ERROR_CODE);
-    assert!(error.error.message.contains("unexpected status 500"));
+    assert!(
+        error
+            .error
+            .message
+            .contains("currently experiencing high demand")
+    );
 
     realtime_server.shutdown().await;
     Ok(())
