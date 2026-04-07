@@ -391,7 +391,7 @@ async fn conversation_call_create_posts_generated_session() -> Result<()> {
     assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
     assert!(body.contains("v=offer\r\n"));
     assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
-    assert!(body.contains(r#""id":"sess_call""#));
+    assert!(!body.contains(r#""id":"sess_call""#));
     assert!(body.contains(r#""type":"quicksilver""#));
     assert!(body.contains("backend prompt"));
     assert!(body.contains("startup context"));

@@ -121,14 +121,16 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
             return Ok(RealtimeCallResponse { sdp });
         }
 
+        let mut session = session;
+        if let Some(session) = session.as_object_mut() {
+            session.remove("id");
+        }
         let session = to_string(&session).map_err(|err| ApiError::InvalidRequest {
             message: err.to_string(),
         })?;
         let mut body = Vec::new();
         body.extend_from_slice(format!("--{MULTIPART_BOUNDARY}\r\n").as_bytes());
-        body.extend_from_slice(
-            b"Content-Disposition: form-data; name=\"sdp\"; filename=\"offer.sdp\"\r\n",
-        );
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"sdp\"\r\n");
         body.extend_from_slice(b"Content-Type: application/sdp\r\n\r\n");
         body.extend_from_slice(sdp.as_bytes());
         body.extend_from_slice(b"\r\n");
@@ -292,7 +294,7 @@ mod tests {
         let response = client
             .create_with_session(
                 "v=offer\r\n".to_string(),
-                serde_json::json!({"type": "realtime", "instructions": "hi"}),
+                serde_json::json!({"id": "sess-api", "type": "realtime", "instructions": "hi"}),
             )
             .await
             .expect("request should succeed");
@@ -314,10 +316,12 @@ mod tests {
         let body = request.raw_body.expect("multipart body");
         let body = std::str::from_utf8(&body).expect("multipart body should be utf-8");
         assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
+        assert!(!body.contains("filename="));
         assert!(body.contains("Content-Type: application/sdp"));
         assert!(body.contains("v=offer\r\n"));
         assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
         assert!(body.contains("Content-Type: application/json"));
+        assert!(!body.contains(r#""id":"sess-api""#));
         assert!(body.contains(r#""instructions":"hi""#));
         assert_eq!(request.body, None);
     }
@@ -334,7 +338,7 @@ mod tests {
         let response = client
             .create_with_session(
                 "v=offer\r\n".to_string(),
-                serde_json::json!({"type": "realtime", "instructions": "hi"}),
+                serde_json::json!({"id": "sess-backend", "type": "realtime", "instructions": "hi"}),
             )
             .await
             .expect("request should succeed");
@@ -358,6 +362,7 @@ mod tests {
             Some(serde_json::json!({
                 "sdp": "v=offer\r\n",
                 "session": {
+                    "id": "sess-backend",
                     "type": "realtime",
                     "instructions": "hi"
                 }
