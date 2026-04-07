@@ -441,18 +441,15 @@ impl ModelClient {
         &self,
         sdp: String,
         session: serde_json::Value,
-        chatgpt_base_url: &str,
     ) -> Result<String> {
         let client_setup = self.current_client_setup().await?;
         let auth_mode = client_setup.auth.as_ref().map(CodexAuth::auth_mode);
         let transport = ReqwestTransport::new(build_reqwest_client());
         match auth_mode {
             Some(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens) => {
-                let mut api_provider = client_setup.api_provider;
-                api_provider.base_url = chatgpt_base_url.trim_end_matches('/').to_string();
                 ApiCodexBackendRealtimeCallClient::new(
                     transport,
-                    api_provider,
+                    client_setup.api_provider,
                     client_setup.api_auth,
                 )
                 .create(&sdp, &session)

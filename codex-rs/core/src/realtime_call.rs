@@ -17,11 +17,10 @@ pub(crate) async fn handle_create(
     params: ConversationCallCreateParams,
 ) -> CodexResult<()> {
     let session = realtime_session_json(sess, params.prompt, params.session_id).await?;
-    let config = sess.get_config().await;
     let sdp = sess
         .services
         .model_client
-        .create_realtime_call(params.sdp, session, &config.chatgpt_base_url)
+        .create_realtime_call(params.sdp, session)
         .await?;
 
     sess.send_event_raw(Event {
