@@ -208,7 +208,7 @@ mod tests {
             Ok(Response {
                 status: StatusCode::OK,
                 headers: HeaderMap::new(),
-                body: Bytes::from_static(b"v=0\r\n").into(),
+                body: Bytes::from_static(b"v=0\r\n"),
             })
         }
 
