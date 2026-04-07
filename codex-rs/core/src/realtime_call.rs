@@ -3,14 +3,11 @@ use std::sync::Arc;
 use codex_api::CodexBackendRealtimeCallClient;
 use codex_api::RealtimeCallClient;
 use codex_api::ReqwestTransport;
-use codex_api::api_bridge::CoreAuthProvider;
 use codex_api::api_bridge::map_api_error;
 use codex_api::session_update_session_json;
 use codex_app_server_protocol::AuthMode;
-use codex_login::CodexAuth;
 use codex_login::api_bridge::auth_provider_from_auth;
 use codex_login::default_client::build_reqwest_client;
-use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::protocol::ConversationCallCreateParams;
@@ -40,10 +37,25 @@ pub(crate) async fn handle_create(
     })?;
 
     let session = realtime_session_json(sess, params.prompt, params.session_id).await?;
-    let sdp = match auth.auth_mode() {
-        AuthMode::ApiKey => create_api_realtime_call(&provider, &auth, params.sdp, session).await,
+    let auth_mode = auth.auth_mode();
+    let mut api_provider = provider.to_api_provider(Some(auth_mode))?;
+    if matches!(auth_mode, AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens) {
+        let config = sess.get_config().await;
+        api_provider.base_url = config.chatgpt_base_url.trim_end_matches('/').to_string();
+    }
+    let api_auth = auth_provider_from_auth(Some(auth), &provider)?;
+    let transport = ReqwestTransport::new(build_reqwest_client());
+    let sdp = match auth_mode {
+        AuthMode::ApiKey => RealtimeCallClient::new(transport, api_provider, api_auth)
+            .create_with_session(params.sdp, session)
+            .await
+            .map(|response| response.sdp)
+            .map_err(map_api_error),
         AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => {
-            create_chatgpt_realtime_call(sess, &provider, &auth, params.sdp, session).await
+            CodexBackendRealtimeCallClient::new(transport, api_provider, api_auth)
+                .create(&params.sdp, &session)
+                .await
+                .map_err(map_api_error)
         }
     }?;
 
@@ -71,48 +83,4 @@ async fn realtime_session_json(
         session.insert("model".to_string(), JsonValue::String(model));
     }
     Ok(session)
-}
-
-async fn create_chatgpt_realtime_call(
-    sess: &Arc<Session>,
-    provider: &ModelProviderInfo,
-    auth: &CodexAuth,
-    sdp: String,
-    session: JsonValue,
-) -> CodexResult<String> {
-    let config = sess.get_config().await;
-    let mut api_provider = provider.to_api_provider(Some(AuthMode::Chatgpt))?;
-    api_provider.base_url = config.chatgpt_base_url.trim_end_matches('/').to_string();
-    let api_auth = CoreAuthProvider {
-        token: Some(auth.get_token()?),
-        account_id: auth.get_account_id(),
-    };
-    let client = CodexBackendRealtimeCallClient::new(
-        ReqwestTransport::new(build_reqwest_client()),
-        api_provider,
-        api_auth,
-    );
-
-    client.create(&sdp, &session).await.map_err(map_api_error)
-}
-
-async fn create_api_realtime_call(
-    provider: &ModelProviderInfo,
-    auth: &CodexAuth,
-    sdp: String,
-    session: JsonValue,
-) -> CodexResult<String> {
-    let api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
-    let api_auth = auth_provider_from_auth(Some(auth.clone()), provider)?;
-    let client = RealtimeCallClient::new(
-        ReqwestTransport::new(build_reqwest_client()),
-        api_provider,
-        api_auth,
-    );
-
-    client
-        .create_with_session(sdp, session)
-        .await
-        .map(|response| response.sdp)
-        .map_err(map_api_error)
 }
