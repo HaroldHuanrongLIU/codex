@@ -25,6 +25,7 @@ Supported transports:
 
 - stdio (`--listen stdio://`, default): newline-delimited JSON (JSONL)
 - websocket (`--listen ws://IP:PORT`): one JSON-RPC message per websocket text frame (**experimental / unsupported**)
+- off (`--listen off`): do not expose a local transport
 
 When running with `--listen ws://IP:PORT`, the same listener also serves basic HTTP health probes:
 
@@ -161,13 +162,13 @@ Example with notification opt-out:
 - `command/exec/resize` — resize a running PTY-backed `command/exec` session by `processId`; returns `{}`.
 - `command/exec/terminate` — terminate a running `command/exec` session by `processId`; returns `{}`.
 - `command/exec/outputDelta` — notification emitted for base64-encoded stdout/stderr chunks from a streaming `command/exec` session.
-- `fs/readFile` — read an absolute file path and return `{ dataBase64 }`; accepts optional `sandboxPolicy`.
-- `fs/writeFile` — write an absolute file path from base64-encoded `{ dataBase64 }`; returns `{}` and accepts optional `sandboxPolicy`.
-- `fs/createDirectory` — create an absolute directory path; `recursive` defaults to `true`, and requests may include optional `sandboxPolicy`.
-- `fs/getMetadata` — return metadata for an absolute path: `isDirectory`, `isFile`, `createdAtMs`, and `modifiedAtMs`; accepts optional `sandboxPolicy`.
-- `fs/readDirectory` — list direct child entries for an absolute directory path; each entry contains `fileName`, `isDirectory`, and `isFile`, and `fileName` is just the child name, not a path. Requests may include optional `sandboxPolicy`.
-- `fs/remove` — remove an absolute file or directory tree; `recursive` and `force` default to `true`, and requests may include optional `sandboxPolicy`.
-- `fs/copy` — copy between absolute paths; directory copies require `recursive: true`, and requests may include optional `sandboxPolicy`.
+- `fs/readFile` — read an absolute file path and return `{ dataBase64 }`.
+- `fs/writeFile` — write an absolute file path from base64-encoded `{ dataBase64 }`; returns `{}`.
+- `fs/createDirectory` — create an absolute directory path; `recursive` defaults to `true`.
+- `fs/getMetadata` — return metadata for an absolute path: `isDirectory`, `isFile`, `createdAtMs`, and `modifiedAtMs`.
+- `fs/readDirectory` — list direct child entries for an absolute directory path; each entry contains `fileName`, `isDirectory`, and `isFile`, and `fileName` is just the child name, not a path.
+- `fs/remove` — remove an absolute file or directory tree; `recursive` and `force` default to `true`.
+- `fs/copy` — copy between absolute paths; directory copies require `recursive: true`.
 - `fs/watch` — subscribe this connection to filesystem change notifications for an absolute file or directory path; returns a `watchId` and canonicalized `path`.
 - `fs/unwatch` — stop sending notifications for a prior `fs/watch`; returns `{}`.
 - `fs/changed` — notification emitted when watched paths change, including the `watchId` and `changedPaths`.
@@ -186,7 +187,7 @@ Example with notification opt-out:
 - `mcpServer/oauth/login` — start an OAuth login for a configured MCP server; returns an `authorization_url` and later emits `mcpServer/oauthLogin/completed` once the browser flow finishes.
 - `tool/requestUserInput` — prompt the user with 1–3 short questions for a tool call and return their answers (experimental).
 - `config/mcpServer/reload` — reload MCP server config from disk and queue a refresh for loaded threads (applied on each thread's next active turn); returns `{}`. Use this after editing `config.toml` without restarting the server.
-- `mcpServerStatus/list` — enumerate configured MCP servers with their tools, resources, resource templates, and auth status; supports cursor+limit pagination.
+- `mcpServerStatus/list` — enumerate configured MCP servers with their tools and auth status, plus optional resources/resource templates when requested; supports cursor+limit pagination. If `detail` is omitted, the server defaults to `full`.
 - `windowsSandbox/setupStart` — start Windows sandbox setup for the selected mode (`elevated` or `unelevated`); accepts an optional absolute `cwd` to target setup for a specific workspace, returns `{ started: true }` immediately, and later emits `windowsSandbox/setupCompleted`.
 - `feedback/upload` — submit a feedback report (classification + optional reason/logs, conversation_id, and optional `extraLogFiles` attachments array); returns the tracking thread id.
 - `config/read` — fetch the effective config on disk after resolving config layering.
@@ -772,7 +773,7 @@ Streaming stdin/stdout uses base64 so PTY sessions can carry arbitrary bytes:
 
 These methods operate on absolute paths on the host filesystem and cover reading, writing, directory traversal, copying, removal, and change notifications.
 
-All filesystem paths in this section must be absolute. When provided, `sandboxPolicy` uses the same shape as `thread/start` and `command/exec`.
+All filesystem paths in this section must be absolute.
 
 ```json
 { "method": "fs/createDirectory", "id": 40, "params": {

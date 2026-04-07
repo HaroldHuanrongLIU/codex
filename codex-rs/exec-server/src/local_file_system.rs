@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
+use codex_protocol::protocol::SandboxPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use std::path::Component;
 use std::path::Path;
@@ -12,7 +13,6 @@ use crate::CopyOptions;
 use crate::CreateDirectoryOptions;
 use crate::ExecutorFileSystem;
 use crate::FileMetadata;
-use crate::FileSystemOperationOptions;
 use crate::FileSystemResult;
 use crate::ReadDirectoryEntry;
 use crate::RemoveOptions;
@@ -35,12 +35,12 @@ impl ExecutorFileSystem for LocalFileSystem {
         tokio::fs::read(path.as_path()).await
     }
 
-    async fn read_file_with_options(
+    async fn read_file_with_sandbox_policy(
         &self,
         path: &AbsolutePathBuf,
-        options: &FileSystemOperationOptions,
+        sandbox_policy: Option<&SandboxPolicy>,
     ) -> FileSystemResult<Vec<u8>> {
-        enforce_read_access(path, options)?;
+        enforce_read_access(path, sandbox_policy)?;
         self.read_file(path).await
     }
 
@@ -48,13 +48,13 @@ impl ExecutorFileSystem for LocalFileSystem {
         tokio::fs::write(path.as_path(), contents).await
     }
 
-    async fn write_file_with_options(
+    async fn write_file_with_sandbox_policy(
         &self,
         path: &AbsolutePathBuf,
         contents: Vec<u8>,
-        options: &FileSystemOperationOptions,
+        sandbox_policy: Option<&SandboxPolicy>,
     ) -> FileSystemResult<()> {
-        enforce_write_access(path, options)?;
+        enforce_write_access(path, sandbox_policy)?;
         self.write_file(path, contents).await
     }
 
@@ -71,13 +71,13 @@ impl ExecutorFileSystem for LocalFileSystem {
         Ok(())
     }
 
-    async fn create_directory_with_options(
+    async fn create_directory_with_sandbox_policy(
         &self,
         path: &AbsolutePathBuf,
         create_directory_options: CreateDirectoryOptions,
-        options: &FileSystemOperationOptions,
+        sandbox_policy: Option<&SandboxPolicy>,
     ) -> FileSystemResult<()> {
-        enforce_write_access(path, options)?;
+        enforce_write_access(path, sandbox_policy)?;
         self.create_directory(path, create_directory_options).await
     }
 
@@ -91,12 +91,12 @@ impl ExecutorFileSystem for LocalFileSystem {
         })
     }
 
-    async fn get_metadata_with_options(
+    async fn get_metadata_with_sandbox_policy(
         &self,
         path: &AbsolutePathBuf,
-        options: &FileSystemOperationOptions,
+        sandbox_policy: Option<&SandboxPolicy>,
     ) -> FileSystemResult<FileMetadata> {
-        enforce_read_access(path, options)?;
+        enforce_read_access(path, sandbox_policy)?;
         self.get_metadata(path).await
     }
 
@@ -117,12 +117,12 @@ impl ExecutorFileSystem for LocalFileSystem {
         Ok(entries)
     }
 
-    async fn read_directory_with_options(
+    async fn read_directory_with_sandbox_policy(
         &self,
         path: &AbsolutePathBuf,
-        options: &FileSystemOperationOptions,
+        sandbox_policy: Option<&SandboxPolicy>,
     ) -> FileSystemResult<Vec<ReadDirectoryEntry>> {
-        enforce_read_access(path, options)?;
+        enforce_read_access(path, sandbox_policy)?;
         self.read_directory(path).await
     }
 
@@ -146,13 +146,13 @@ impl ExecutorFileSystem for LocalFileSystem {
         }
     }
 
-    async fn remove_with_options(
+    async fn remove_with_sandbox_policy(
         &self,
         path: &AbsolutePathBuf,
         remove_options: RemoveOptions,
-        options: &FileSystemOperationOptions,
+        sandbox_policy: Option<&SandboxPolicy>,
     ) -> FileSystemResult<()> {
-        enforce_write_access(path, options)?;
+        enforce_write_access(path, sandbox_policy)?;
         self.remove(path, remove_options).await
     }
 
@@ -207,26 +207,26 @@ impl ExecutorFileSystem for LocalFileSystem {
         .map_err(|err| io::Error::other(format!("filesystem task failed: {err}")))?
     }
 
-    async fn copy_with_options(
+    async fn copy_with_sandbox_policy(
         &self,
         source_path: &AbsolutePathBuf,
         destination_path: &AbsolutePathBuf,
         copy_options: CopyOptions,
-        options: &FileSystemOperationOptions,
+        sandbox_policy: Option<&SandboxPolicy>,
     ) -> FileSystemResult<()> {
-        enforce_read_access(source_path, options)?;
-        enforce_write_access(destination_path, options)?;
+        enforce_read_access(source_path, sandbox_policy)?;
+        enforce_write_access(destination_path, sandbox_policy)?;
         self.copy(source_path, destination_path, copy_options).await
     }
 }
 
 fn enforce_read_access(
     path: &AbsolutePathBuf,
-    options: &FileSystemOperationOptions,
+    sandbox_policy: Option<&SandboxPolicy>,
 ) -> FileSystemResult<()> {
     enforce_access(
         path,
-        options,
+        sandbox_policy,
         FileSystemSandboxPolicy::can_read_path_with_cwd,
         "read",
     )
@@ -234,11 +234,11 @@ fn enforce_read_access(
 
 fn enforce_write_access(
     path: &AbsolutePathBuf,
-    options: &FileSystemOperationOptions,
+    sandbox_policy: Option<&SandboxPolicy>,
 ) -> FileSystemResult<()> {
     enforce_access(
         path,
-        options,
+        sandbox_policy,
         FileSystemSandboxPolicy::can_write_path_with_cwd,
         "write",
     )
@@ -246,11 +246,11 @@ fn enforce_write_access(
 
 fn enforce_access(
     path: &AbsolutePathBuf,
-    options: &FileSystemOperationOptions,
+    sandbox_policy: Option<&SandboxPolicy>,
     is_allowed: fn(&FileSystemSandboxPolicy, &Path, &Path) -> bool,
     access_kind: &str,
 ) -> FileSystemResult<()> {
-    let Some(sandbox_policy) = &options.sandbox_policy else {
+    let Some(sandbox_policy) = sandbox_policy else {
         return Ok(());
     };
     let cwd = std::env::current_dir()
@@ -262,7 +262,7 @@ fn enforce_access(
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "fs/{access_kind} is not permitted by sandbox policy for path {}",
+                "fs/{access_kind} is not permitted for path {}",
                 path.as_path().display()
             ),
         ))

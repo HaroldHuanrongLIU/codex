@@ -4182,17 +4182,6 @@
           "description": "Required for directory copies; ignored for file copies.",
           "type": "boolean"
         },
-        "sandboxPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional sandbox policy for this filesystem copy."
-        },
         "sourcePath": {
           "allOf": [
             {
@@ -4233,17 +4222,6 @@
             "boolean",
             "null"
           ]
-        },
-        "sandboxPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional sandbox policy for this filesystem mutation."
         }
       },
       "required": [
@@ -4269,17 +4247,6 @@
             }
           ],
           "description": "Absolute path to inspect."
-        },
-        "sandboxPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional sandbox policy for this filesystem metadata lookup."
         }
       },
       "required": [
@@ -4354,17 +4321,6 @@
             }
           ],
           "description": "Absolute directory path to read."
-        },
-        "sandboxPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional sandbox policy for this directory read."
         }
       },
       "required": [
@@ -4402,17 +4358,6 @@
             }
           ],
           "description": "Absolute path to read."
-        },
-        "sandboxPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional sandbox policy for this filesystem read."
         }
       },
       "required": [
@@ -4461,17 +4406,6 @@
             "boolean",
             "null"
           ]
-        },
-        "sandboxPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional sandbox policy for this filesystem mutation."
         }
       },
       "required": [
@@ -4565,17 +4499,6 @@
             }
           ],
           "description": "Absolute path to write."
-        },
-        "sandboxPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional sandbox policy for this filesystem write."
         }
       },
       "required": [
@@ -5504,6 +5427,17 @@
             "null"
           ]
         },
+        "detail": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/McpServerStatusDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Controls how much MCP inventory data to fetch for each server. Defaults to `Full` when omitted."
+        },
         "limit": {
           "description": "Optional page size; defaults to a server-defined value.",
           "format": "uint32",
@@ -5943,6 +5877,13 @@
         "tools"
       ],
       "type": "object"
+    },
+    "McpServerStatusDetail": {
+      "enum": [
+        "full",
+        "toolsAndAuthOnly"
+      ],
+      "type": "string"
     },
     "McpServerStatusUpdatedNotification": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -12261,6 +12202,22 @@
     },
     "Turn": {
       "properties": {
+        "completedAt": {
+          "description": "Unix timestamp (in seconds) when the turn completed.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "durationMs": {
+          "description": "Duration between turn start and completion in milliseconds, if known.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "error": {
           "anyOf": [
             {
@@ -12281,6 +12238,14 @@
             "$ref": "#/definitions/ThreadItem"
           },
           "type": "array"
+        },
+        "startedAt": {
+          "description": "Unix timestamp (in seconds) when the turn started.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "status": {
           "$ref": "#/definitions/TurnStatus"
