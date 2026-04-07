@@ -6,6 +6,7 @@ use codex_login::OPENAI_API_KEY_ENV_VAR;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::CodexErrorInfo;
 use codex_protocol::protocol::ConversationAudioParams;
+use codex_protocol::protocol::ConversationCallCreateParams;
 use codex_protocol::protocol::ConversationStartParams;
 use codex_protocol::protocol::ConversationTextParams;
 use codex_protocol::protocol::ErrorEvent;
@@ -32,15 +33,50 @@ use serde_json::Value;
 use serde_json::json;
 use std::fs;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
+use wiremock::Match;
+use wiremock::Mock;
+use wiremock::Request as WiremockRequest;
+use wiremock::ResponseTemplate;
+use wiremock::matchers::method;
+use wiremock::matchers::path_regex;
 
 const STARTUP_CONTEXT_HEADER: &str = "Startup context from Codex.";
 const MEMORY_PROMPT_PHRASE: &str =
     "You have access to a memory folder with guidance from prior runs.";
 const REALTIME_CONVERSATION_TEST_SUBPROCESS_ENV_VAR: &str =
     "CODEX_REALTIME_CONVERSATION_TEST_SUBPROCESS";
+
+#[derive(Debug, Clone)]
+struct RealtimeCallRequestCapture {
+    requests: Arc<Mutex<Vec<WiremockRequest>>>,
+}
+
+impl RealtimeCallRequestCapture {
+    fn new() -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn single_request(&self) -> WiremockRequest {
+        let requests = self.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "expected one realtime call request");
+        requests[0].clone()
+    }
+}
+
+impl Match for RealtimeCallRequestCapture {
+    fn matches(&self, request: &WiremockRequest) -> bool {
+        self.requests.lock().unwrap().push(request.clone());
+        true
+    }
+}
+
 fn websocket_request_text(
     request: &core_test_support::responses::WebSocketRequest,
 ) -> Option<String> {
@@ -289,6 +325,77 @@ async fn conversation_start_audio_text_close_round_trip() -> Result<()> {
     ));
 
     server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conversation_call_create_posts_session_with_intent() -> Result<()> {
+    let server = start_mock_server().await;
+    let capture = RealtimeCallRequestCapture::new();
+    Mock::given(method("POST"))
+        .and(path_regex(".*/realtime/calls$"))
+        .and(capture.clone())
+        .respond_with(ResponseTemplate::new(200).set_body_string("v=answer\r\n"))
+        .mount(&server)
+        .await;
+
+    let mut builder = test_codex().with_config(|config| {
+        config.experimental_realtime_ws_model = Some("realtime-test-model".to_string());
+        config.experimental_realtime_ws_startup_context = Some("startup context".to_string());
+    });
+    let test = builder.build(&server).await?;
+
+    test.codex
+        .submit(Op::RealtimeConversationCallCreate(
+            ConversationCallCreateParams {
+                sdp: "v=offer\r\n".to_string(),
+                prompt: "backend prompt".to_string(),
+                session_id: Some("sess_call".to_string()),
+            },
+        ))
+        .await?;
+
+    let created = wait_for_event_match(&test.codex, |msg| match msg {
+        EventMsg::RealtimeConversationCallCreated(created) => Some(Ok(created.clone())),
+        EventMsg::Error(err) => Some(Err(err.clone())),
+        _ => None,
+    })
+    .await
+    .unwrap_or_else(|err: ErrorEvent| panic!("conversation call create failed: {err:?}"));
+    assert_eq!(created.sdp, "v=answer\r\n");
+
+    let request = capture.single_request();
+    assert_eq!(request.url.path(), "/v1/realtime/calls");
+    assert_eq!(
+        request
+            .url
+            .query_pairs()
+            .find(|(key, _)| key == "intent")
+            .map(|(_, value)| value.to_string()),
+        Some("quicksilver".to_string())
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer dummy")
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("multipart/form-data; boundary=codex-realtime-call-boundary")
+    );
+    let body = String::from_utf8(request.body.clone()).context("multipart body should be utf-8")?;
+    assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
+    assert!(body.contains("v=offer\r\n"));
+    assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
+    assert!(body.contains("backend prompt"));
+    assert!(body.contains("startup context"));
+    assert!(body.contains(r#""model":"realtime-test-model""#));
+
     Ok(())
 }
 

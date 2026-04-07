@@ -4,6 +4,7 @@ use crate::error::ApiError;
 use crate::provider::Provider;
 use bytes::Bytes;
 use codex_client::HttpTransport;
+use codex_client::Request;
 use codex_client::RequestTelemetry;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -15,8 +16,10 @@ use serde_json::to_string;
 use serde_json::to_value;
 use std::sync::Arc;
 use tracing::instrument;
+use url::Url;
 
 const MULTIPART_BOUNDARY: &str = "codex-realtime-call-boundary";
+const REALTIME_CALL_INTENT: &str = "quicksilver";
 
 pub struct RealtimeCallClient<T: HttpTransport, A: AuthProvider> {
     session: EndpointSession<T, A>,
@@ -89,6 +92,7 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
                 extra_headers,
                 /*body*/ None,
                 |req| {
+                    append_realtime_call_intent(req);
                     req.headers
                         .insert(CONTENT_TYPE, HeaderValue::from_static("application/sdp"));
                     req.raw_body = Some(Bytes::from(sdp.clone()));
@@ -115,7 +119,15 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
             .map_err(|err| ApiError::Stream(format!("failed to encode realtime call: {err}")))?;
             let resp = self
                 .session
-                .execute(Method::POST, Self::path(), extra_headers, Some(body))
+                .execute_with(
+                    Method::POST,
+                    Self::path(),
+                    extra_headers,
+                    Some(body),
+                    |req| {
+                        append_realtime_call_intent(req);
+                    },
+                )
                 .await?;
             let sdp = decode_sdp_response(resp.body.as_ref())?;
             return Ok(RealtimeCallResponse { sdp });
@@ -147,6 +159,7 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
                 extra_headers,
                 /*body*/ None,
                 |req| {
+                    append_realtime_call_intent(req);
                     req.headers.insert(
                         CONTENT_TYPE,
                         HeaderValue::from_static(
@@ -162,6 +175,15 @@ impl<T: HttpTransport, A: AuthProvider> RealtimeCallClient<T, A> {
 
         Ok(RealtimeCallResponse { sdp })
     }
+}
+
+fn append_realtime_call_intent(req: &mut Request) {
+    let mut url = Url::parse(&req.url).expect("endpoint session should build valid URLs");
+    if !url.query_pairs().any(|(key, _)| key == "intent") {
+        url.query_pairs_mut()
+            .append_pair("intent", REALTIME_CALL_INTENT);
+    }
+    req.url = url.to_string();
 }
 
 fn decode_sdp_response(body: &[u8]) -> Result<String, ApiError> {
@@ -264,7 +286,10 @@ mod tests {
 
         let request = transport.last_request.lock().unwrap().clone().unwrap();
         assert_eq!(request.method, Method::POST);
-        assert_eq!(request.url, "https://api.openai.com/v1/realtime/calls");
+        assert_eq!(
+            request.url,
+            "https://api.openai.com/v1/realtime/calls?intent=quicksilver"
+        );
         assert_eq!(
             request.headers.get(CONTENT_TYPE).unwrap(),
             HeaderValue::from_static("application/sdp")
@@ -306,7 +331,10 @@ mod tests {
 
         let request = transport.last_request.lock().unwrap().clone().unwrap();
         assert_eq!(request.method, Method::POST);
-        assert_eq!(request.url, "https://api.openai.com/v1/realtime/calls");
+        assert_eq!(
+            request.url,
+            "https://api.openai.com/v1/realtime/calls?intent=quicksilver"
+        );
         assert_eq!(
             request.headers.get(CONTENT_TYPE).unwrap(),
             HeaderValue::from_static("multipart/form-data; boundary=codex-realtime-call-boundary")
@@ -350,7 +378,7 @@ mod tests {
         assert_eq!(request.method, Method::POST);
         assert_eq!(
             request.url,
-            "https://chatgpt.com/backend-api/codex/realtime/calls"
+            "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver"
         );
         assert_eq!(request.raw_body, None);
         assert_eq!(
