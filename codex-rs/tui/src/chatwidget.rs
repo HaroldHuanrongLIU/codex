@@ -7022,6 +7022,7 @@ impl ChatWidget {
                     self.on_realtime_conversation_started(ev);
                 }
             }
+            EventMsg::RealtimeConversationCallCreated(_) => {}
             EventMsg::RealtimeConversationRealtime(ev) => {
                 if !from_replay {
                     self.on_realtime_conversation_realtime(ev);
