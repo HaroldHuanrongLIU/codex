@@ -637,6 +637,7 @@ approval_policy = "never"
 sandbox_mode = "read-only"
 model_provider = "mock_provider"
 experimental_realtime_ws_base_url = "{realtime_server_uri}"
+experimental_realtime_ws_backend_prompt = "backend prompt"
 
 [realtime]
 version = "v2"
