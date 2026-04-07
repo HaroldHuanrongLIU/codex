@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+use codex_api::CodexBackendRealtimeCallClient;
 use codex_api::RealtimeCallClient;
 use codex_api::ReqwestTransport;
+use codex_api::api_bridge::CoreAuthProvider;
 use codex_api::api_bridge::map_api_error;
 use codex_api::session_update_session_json;
 use codex_app_server_protocol::AuthMode;
-use codex_backend_client::Client as BackendClient;
 use codex_login::CodexAuth;
 use codex_login::api_bridge::auth_provider_from_auth;
 use codex_login::default_client::build_reqwest_client;
@@ -40,7 +41,7 @@ pub(crate) async fn create_realtime_call(
     match auth.auth_mode() {
         AuthMode::ApiKey => create_api_realtime_call(&provider, &auth, sdp, session).await,
         AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => {
-            create_chatgpt_realtime_call(sess, &auth, sdp, session).await
+            create_chatgpt_realtime_call(sess, &provider, &auth, sdp, session).await
         }
     }
 }
@@ -63,18 +64,25 @@ async fn realtime_session_json(
 
 async fn create_chatgpt_realtime_call(
     sess: &Arc<Session>,
+    provider: &ModelProviderInfo,
     auth: &CodexAuth,
     sdp: String,
     session: JsonValue,
 ) -> CodexResult<String> {
     let config = sess.get_config().await;
-    let client = BackendClient::from_auth(config.chatgpt_base_url.clone(), auth)
-        .map_err(|err| CodexErr::Fatal(format!("failed to construct backend client: {err}")))?;
+    let mut api_provider = provider.to_api_provider(Some(AuthMode::Chatgpt))?;
+    api_provider.base_url = config.chatgpt_base_url.trim_end_matches('/').to_string();
+    let api_auth = CoreAuthProvider {
+        token: Some(auth.get_token()?),
+        account_id: auth.get_account_id(),
+    };
+    let client = CodexBackendRealtimeCallClient::new(
+        ReqwestTransport::new(build_reqwest_client()),
+        api_provider,
+        api_auth,
+    );
 
-    client
-        .create_realtime_call(&sdp, &session)
-        .await
-        .map_err(|err| CodexErr::Fatal(format!("failed to create realtime call: {err}")))
+    client.create(&sdp, &session).await.map_err(map_api_error)
 }
 
 async fn create_api_realtime_call(

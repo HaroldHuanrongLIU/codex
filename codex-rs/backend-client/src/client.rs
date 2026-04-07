@@ -19,8 +19,6 @@ use reqwest::header::HeaderName;
 use reqwest::header::HeaderValue;
 use reqwest::header::USER_AGENT;
 use serde::de::DeserializeOwned;
-use serde_json::Value as JsonValue;
-use serde_json::json;
 use std::fmt;
 
 #[derive(Debug)]
@@ -265,21 +263,6 @@ impl Client {
         let (body, ct) = self.exec_request(req, "GET", &url).await?;
         let payload: RateLimitStatusPayload = self.decode_json(&url, &ct, &body)?;
         Ok(Self::rate_limit_snapshots_from_payload(payload))
-    }
-
-    pub async fn create_realtime_call(&self, sdp: &str, session: &JsonValue) -> Result<String> {
-        let url = format!("{}/api/codex/realtime/calls", self.base_url);
-        let req = self
-            .http
-            .post(&url)
-            .headers(self.headers())
-            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-            .json(&json!({
-                "sdp": sdp,
-                "session": session,
-            }));
-        let (body, _) = self.exec_request(req, "POST", &url).await?;
-        Ok(body)
     }
 
     pub async fn list_tasks(
