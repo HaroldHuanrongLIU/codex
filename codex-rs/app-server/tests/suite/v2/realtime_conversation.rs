@@ -12,6 +12,8 @@ use codex_app_server_protocol::ThreadRealtimeAppendAudioResponse;
 use codex_app_server_protocol::ThreadRealtimeAppendTextParams;
 use codex_app_server_protocol::ThreadRealtimeAppendTextResponse;
 use codex_app_server_protocol::ThreadRealtimeAudioChunk;
+use codex_app_server_protocol::ThreadRealtimeCallCreateParams;
+use codex_app_server_protocol::ThreadRealtimeCallCreateResponse;
 use codex_app_server_protocol::ThreadRealtimeClosedNotification;
 use codex_app_server_protocol::ThreadRealtimeErrorNotification;
 use codex_app_server_protocol::ThreadRealtimeItemAddedNotification;
@@ -33,12 +35,47 @@ use pretty_assertions::assert_eq;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::timeout;
+use wiremock::Match;
+use wiremock::Mock;
+use wiremock::Request as WiremockRequest;
+use wiremock::ResponseTemplate;
+use wiremock::matchers::method;
+use wiremock::matchers::path;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+const INTERNAL_ERROR_CODE: i64 = -32603;
 const STARTUP_CONTEXT_HEADER: &str = "Startup context from Codex.";
+
+#[derive(Debug, Clone)]
+struct RealtimeCallRequestCapture {
+    requests: Arc<Mutex<Vec<WiremockRequest>>>,
+}
+
+impl RealtimeCallRequestCapture {
+    fn new() -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn single_request(&self) -> WiremockRequest {
+        let requests = self.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "expected one realtime call request");
+        requests[0].clone()
+    }
+}
+
+impl Match for RealtimeCallRequestCapture {
+    fn matches(&self, request: &WiremockRequest) -> bool {
+        self.requests.lock().unwrap().push(request.clone());
+        true
+    }
+}
 
 #[tokio::test]
 async fn realtime_conversation_streams_v2_notifications() -> Result<()> {
@@ -363,6 +400,132 @@ async fn realtime_conversation_stop_emits_closed_notification() -> Result<()> {
         closed.reason.as_deref(),
         Some("requested" | "transport_closed")
     ));
+
+    realtime_server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn realtime_call_create_returns_offer() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let responses_server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
+    let call_capture = RealtimeCallRequestCapture::new();
+    Mock::given(method("POST"))
+        .and(path("/v1/realtime/calls"))
+        .and(call_capture.clone())
+        .respond_with(ResponseTemplate::new(200).set_body_string("v=answer\r\n"))
+        .mount(&responses_server)
+        .await;
+    let realtime_server = start_websocket_server(vec![vec![]]).await;
+
+    let codex_home = TempDir::new()?;
+    create_config_toml(
+        codex_home.path(),
+        &responses_server.uri(),
+        realtime_server.uri(),
+        /*realtime_enabled*/ true,
+    )?;
+
+    let mut mcp = McpProcess::new(codex_home.path()).await?;
+    mcp.initialize().await?;
+    login_with_api_key(&mut mcp, "sk-test-key").await?;
+
+    let thread_start_request_id = mcp
+        .send_thread_start_request(ThreadStartParams::default())
+        .await?;
+    let thread_start_response: JSONRPCResponse = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(thread_start_request_id)),
+    )
+    .await??;
+    let thread_start: ThreadStartResponse = to_response(thread_start_response)?;
+
+    let call_request_id = mcp
+        .send_thread_realtime_call_create_request(ThreadRealtimeCallCreateParams {
+            thread_id: thread_start.thread.id,
+            sdp: "v=offer\r\n".to_string(),
+            prompt: "backend prompt".to_string(),
+            session_id: Some("sess_app".to_string()),
+        })
+        .await?;
+    let call_response: JSONRPCResponse = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(call_request_id)),
+    )
+    .await??;
+    let created: ThreadRealtimeCallCreateResponse = to_response(call_response)?;
+    assert_eq!(
+        created,
+        ThreadRealtimeCallCreateResponse {
+            sdp: "v=answer\r\n".to_string()
+        }
+    );
+
+    let request = call_capture.single_request();
+    assert_eq!(request.url.path(), "/v1/realtime/calls");
+    assert_eq!(request.url.query(), None);
+    let body = String::from_utf8(request.body.clone()).context("multipart body should be utf-8")?;
+    assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
+    assert!(body.contains("v=offer\r\n"));
+    assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
+    assert!(body.contains(r#""type":"realtime""#));
+    assert!(body.contains("backend prompt"));
+    assert!(body.contains(STARTUP_CONTEXT_HEADER));
+
+    realtime_server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn realtime_call_create_surfaces_backend_error() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let responses_server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/realtime/calls"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
+        .mount(&responses_server)
+        .await;
+    let realtime_server = start_websocket_server(vec![vec![]]).await;
+
+    let codex_home = TempDir::new()?;
+    create_config_toml(
+        codex_home.path(),
+        &responses_server.uri(),
+        realtime_server.uri(),
+        /*realtime_enabled*/ true,
+    )?;
+
+    let mut mcp = McpProcess::new(codex_home.path()).await?;
+    mcp.initialize().await?;
+    login_with_api_key(&mut mcp, "sk-test-key").await?;
+
+    let thread_start_request_id = mcp
+        .send_thread_start_request(ThreadStartParams::default())
+        .await?;
+    let thread_start_response: JSONRPCResponse = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(thread_start_request_id)),
+    )
+    .await??;
+    let thread_start: ThreadStartResponse = to_response(thread_start_response)?;
+
+    let call_request_id = mcp
+        .send_thread_realtime_call_create_request(ThreadRealtimeCallCreateParams {
+            thread_id: thread_start.thread.id,
+            sdp: "v=offer\r\n".to_string(),
+            prompt: "backend prompt".to_string(),
+            session_id: Some("sess_app".to_string()),
+        })
+        .await?;
+    let error = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(call_request_id)),
+    )
+    .await??;
+    assert_eq!(error.error.code, INTERNAL_ERROR_CODE);
+    assert!(error.error.message.contains("unexpected status 500"));
 
     realtime_server.shutdown().await;
     Ok(())
