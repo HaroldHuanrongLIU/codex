@@ -389,6 +389,7 @@ async fn conversation_call_create_posts_generated_session() -> Result<()> {
     );
     let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
     assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
+    assert!(!body.contains("filename="));
     assert!(body.contains("v=offer\r\n"));
     assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
     assert!(!body.contains(r#""id":"sess_call""#));
