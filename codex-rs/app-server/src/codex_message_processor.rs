@@ -6940,7 +6940,7 @@ impl CodexMessageProcessor {
         request_id: ConnectionRequestId,
         params: ThreadRealtimeCallCreateParams,
     ) {
-        let Some((_, thread)) = self
+        let Some((thread_id, thread)) = self
             .prepare_realtime_conversation_thread(request_id.clone(), &params.thread_id)
             .await
         else {
@@ -6948,10 +6948,7 @@ impl CodexMessageProcessor {
         };
 
         let submission_id = Uuid::now_v7().to_string();
-        let thread_state = self
-            .thread_state_manager
-            .thread_state(params.thread_id.into())
-            .await;
+        let thread_state = self.thread_state_manager.thread_state(thread_id).await;
         thread_state
             .lock()
             .await
