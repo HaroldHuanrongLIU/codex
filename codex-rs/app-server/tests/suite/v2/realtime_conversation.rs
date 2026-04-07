@@ -64,7 +64,10 @@ impl RealtimeCallRequestCapture {
     }
 
     fn single_request(&self) -> WiremockRequest {
-        let requests = self.requests.lock().unwrap();
+        let requests = self
+            .requests
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(requests.len(), 1, "expected one realtime call request");
         requests[0].clone()
     }
@@ -72,7 +75,10 @@ impl RealtimeCallRequestCapture {
 
 impl Match for RealtimeCallRequestCapture {
     fn matches(&self, request: &WiremockRequest) -> bool {
-        self.requests.lock().unwrap().push(request.clone());
+        self.requests
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(request.clone());
         true
     }
 }
@@ -465,7 +471,7 @@ async fn realtime_call_create_returns_offer() -> Result<()> {
     let request = call_capture.single_request();
     assert_eq!(request.url.path(), "/v1/realtime/calls");
     assert_eq!(request.url.query(), None);
-    let body = String::from_utf8(request.body.clone()).context("multipart body should be utf-8")?;
+    let body = String::from_utf8(request.body).context("multipart body should be utf-8")?;
     assert!(body.contains("Content-Disposition: form-data; name=\"sdp\""));
     assert!(body.contains("v=offer\r\n"));
     assert!(body.contains("Content-Disposition: form-data; name=\"session\""));
